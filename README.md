@@ -1,4 +1,4 @@
-# MultiTurn-Medical-Evaluation-
+# MultiTurn-Medical-Evaluation
 # Unified Multi-Turn Medical Agent Simulation Framework
 
 ## Context
@@ -43,13 +43,27 @@ The harness enables several research directions:
 
 ---
 
-## Current Status
+## Inspect AI — Key Building Blocks
 
-- [x] Initial project proposal by Yusuf (Stage 1 + Stage 2 directions)
-- [x] Kick-off meeting with Yusuf, Fabrice, Xavier — agreement on backbone approach over adapter wrappers
-- [ ] Investigation of LM Harness and Inspect as potential foundations
-- [ ] Summary of findings + coding plan (due Monday)
-- [ ] Stage 1 implementation
+Candidate foundation for Stage 1. Quick reference for the pieces we'd actually use to implement the doctor/patient harness.
+
+| Name | What it is | Why it matters here |
+|---|---|---|
+| `Task` | Bundles `dataset` + `solver` + `scorer` + `model` + limits into one runnable recipe (`@task` decorated function) | The top-level unit `eval()` runs — one `Task` per framework (MediQ, AgentClinic, ...) |
+| `Sample` / `Dataset` | One case (`input`, `target`, free-form `metadata`) / a list of them | How each framework's raw case files (jsonl, etc.) get loaded in |
+| `Solver` | `(TaskState, generate) -> TaskState`, chainable steps run in sequence for a sample | The classic building block; a whole doctor/patient loop can be written as one custom `@solver` |
+| `Agent` / `AgentState` | `(AgentState) -> AgentState` — narrower than `Solver` (just messages + output, no dataset/target coupling) | The right shape for a reusable "patient" or "doctor" participant, usable standalone, as a tool, or delegated to |
+| `@agent` / `@solver` / `@scorer` / `@task` | Decorators that register a factory function by name in a global registry | Lets components be referenced by name from the CLI/config instead of imported directly |
+| `react()` | Built-in ReAct agent: tool-use loop + a synthesized `submit` tool + retry/attempts + context overflow handling | Good ready-made scaffold for the **doctor** role — `submit` replaces AgentClinic's fragile `"DIAGNOSIS READY:"` string parsing |
+| `as_tool()` | Wraps an `Agent` as a `Tool` that sees only a single input string and returns the agent's last message | Right fit for the **patient**: it only answers the question it's given, never sees or drives the full conversation |
+| `handoff()` | Wraps an `Agent` so it gets full conversation visibility + can append messages / take control | **Not** the right fit for a passive patient — this is for delegating to an autonomous sub-agent (contrast with `as_tool()`) |
+| `run()` | Runs an `Agent` once given an input (string / messages / `AgentState`) | Needed if we hand-write the doctor↔patient turn-taking loop ourselves (no built-in "converse until X" helper exists) |
+| `Scorer` / `Score` / `Target` / `model_graded_qa()` | `(TaskState, Target) -> Score`; `model_graded_qa()` is a ready-made LLM-judge scorer | Covers AgentClinic-style binary LLM grading out of the box; ranked-list (MEDDxAgent-style) scoring still needs a custom `@scorer` |
+| `Tool` / `@tool` | Custom function exposed to a model as a callable tool | For a "measurement/exam" side-channel role, equivalent to AgentClinic's `MeasurementAgent` |
+| `turn_limit()` / `message_limit()` / `token_limit()` / `time_limit()` / `apply_limits()` | Native, **ambient/cooperative** limits — every `generate()` call in scope counts against them automatically | Replaces hand-rolled counters like AgentClinic's `self.infs`; works across a hand-written multi-agent loop too |
+| `eval()` + `.eval` log + Inspect view | Runner + structured log format + built-in web viewer | Full trace logging (system prompts, transcripts, metrics) for free — the biggest gap in all 4 upstream frameworks today |
+
+**Caveat worth remembering**: `as_tool()` builds a *fresh* `AgentState` on every call — a patient exposed this way has no memory of earlier questions unless we manage its running history ourselves (closure-captured list, same trick AgentClinic uses with `self.agent_hist`).
 
 ---
 
