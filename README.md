@@ -67,6 +67,30 @@ Candidate foundation for Stage 1. Quick reference for the pieces we'd actually u
 
 ---
 
+## Prototype — What We Tested for now
+
+First hands-on pass at Inspect, run end-to-end on RCP (H100, models served locally via vLLM). Four example harness files, each isolating one design question:
+
+| File | Architecture | Dataset | Models |
+|---|---|---|---|
+| [`inspect_doctor_as_tool.py`](inspect_doctor_as_tool.py) | `react()` doctor with patient as `as_tool()` | 2 hardcoded toy cases | single model |
+| [`inspect_doctor_patient_loop.py`](inspect_doctor_patient_loop.py) | hand-written `while` loop, no tool-calling | 2 hardcoded toy cases | single model |
+| [`inspect_mediq_craftmd.py`](inspect_mediq_craftmd.py) | `react()` doctor with patient as `as_tool()` | real MediQ CRAFT-MD dataset (140 cases) | doctor/patient/grader on separate models via `model_roles` |
+| [`inspect_meditron_doctor.py`](inspect_meditron_doctor.py) | hand-written `while` loop, no tool-calling | real MediQ CRAFT-MD dataset | doctor/patient/grader on separate models via `model_roles` |
+
+**What worked:**
+- The `react()` + `as_tool()` architecture works end-to-end with **Qwen2.5-7B-Instruct** as doctor (tool-calling functional via vLLM's `--enable-auto-tool-choice --tool-call-parser hermes`), scored with `model_graded_qa()`.
+- The hand-written loop architecture works with both Qwen2.5-7B-Instruct and **EPFLiGHT/Apertus-8B-MeditronFO** as doctor.
+- `Task.model_roles` cleanly separates doctor/patient/grader onto different models — avoids the self-grading confound (a model writing the answer and then judging it)
+- Remapped MediQ's CRAFT-MD dataset (`context` → patient's full record, `answer` → free-text target, dropped the QCM `options`) so it grades on open-ended diagnosis instead of multiple choice — same `Sample`/`model_graded_qa()` pipeline as the toy cases.
+
+**What broke, and why (useful for Stage 2 planning):**
+- **Apertus-8B-MeditronFO does not support tool-calling** in vLLM — its `chat_template` errors out (`'dict object' has no attribute 'description'`) as soon as a non-empty `tools` list is in the request. This rules out the `react()`/`as_tool()` architecture for this model entirely; the hand-written loop (plain text, `"DIAGNOSIS READY:"` marker) is the only option we found for now
+- **Two vLLM servers sharing one GPU**: each defaults to reserving ~90% of GPU memory, so running doctor + patient as two different models on a single H100 needs each capped explicitly (`gpu_memory_utilization=0.45` each) or the second server fails to start.
+- **Doctor turn-budget awareness**: telling the doctor its question budget once, in the initial system prompt, isn't enough it frequently asked a new question right at the limit instead of diagnosing, partly because `turn_limit()` counts *both* agents' generations combined (not just the doctor's questions), making any static count wrong anyway. Tried to fix it by telling the doctor the questions remaining but didn't really work. We can find something better.
+
+---
+
 ## Team
 
 | Name | Role |
