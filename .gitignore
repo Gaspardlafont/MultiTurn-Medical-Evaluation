@@ -1,0 +1,16 @@
+# Dataset files — transferred separately (e.g. kubectl cp), not versioned here
+*.jsonl
+*.csv
+*.parquet
+
+# Inspect eval logs/transcripts (generated output, not source)
+logs/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS
+.DS_Store
