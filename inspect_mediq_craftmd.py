@@ -10,10 +10,19 @@ target, and `question` is the only thing given to the doctor — no options
 are shown, so the doctor must produce a free-text diagnosis, graded by
 model_graded_qa() instead of matched against a multiple-choice letter.
 
+Doctor is EPFLiGHT/Apertus-8B-MeditronFO, patient/grader are Qwen2.5-7B-Instruct
+(so the patient's answers and the final grading aren't produced by the model
+being evaluated). Unlike inspect_meditron_doctor.py, this file still uses
+react()/as_tool() for the doctor, which requires tool-calling support — it is
+NOT verified that Apertus-8B-MeditronFO supports vLLM's Hermes tool-call
+parser; enable_auto_tool_choice/tool_call_parser below is a best-effort guess
+to test empirically, not a confirmed-working config. If the server fails to
+start with a tool-calling-related error, fall back to
+inspect_meditron_doctor.py (no tool-calling required there).
+
 Run:
     inspect eval inspect_mediq_craftmd.py \
         --model vllm/Qwen/Qwen2.5-7B-Instruct \
-        -M enable_auto_tool_choice=true -M tool_call_parser=hermes \
         -T limit=20
 """
 
@@ -27,6 +36,16 @@ from inspect_ai.solver import Generate, Solver, TaskState, solver
 # Path to MediQ's all_craft_md.jsonl. Defaults to a file alongside this
 # script; override with -T dataset_path=/abs/path/all_craft_md.jsonl.
 MEDIQ_CRAFTMD_PATH = "all_craft_md.jsonl"
+
+# Tool-call support here is an unverified guess (see module docstring) —
+# baked into the model instance since -M CLI flags only configure whatever
+# --model is passed on the command line, not models resolved via model_roles.
+DOCTOR_MODEL = get_model(
+    "vllm/EPFLiGHT/Apertus-8B-MeditronFO",
+    enable_auto_tool_choice=True,
+    tool_call_parser="hermes",
+)
+PATIENT_MODEL = "vllm/Qwen/Qwen2.5-7B-Instruct"
 
 DOCTOR_PROMPT = (
     "You are a doctor trying to reach a diagnosis. Ask the patient tool one "
@@ -66,7 +85,7 @@ def patient(full_record: str) -> Agent:
             ),
             *history,
         ]
-        output = await get_model().generate(prompt)
+        output = await get_model(role="patient").generate(prompt)
         history.append(output.message)
         state.output = output
         state.messages.append(output.message)
@@ -85,6 +104,7 @@ def doctor_with_patient_tool() -> Solver:
             name="doctor",
             description="Doctor trying to reach a diagnosis",
             prompt=DOCTOR_PROMPT,
+            model=get_model(role="doctor"),
             tools=[
                 as_tool(patient(full_record), description="Ask the patient a question")
             ],
@@ -110,4 +130,9 @@ def mediq_craftmd_as_tool(
         solver=doctor_with_patient_tool(),
         scorer=model_graded_qa(),
         turn_limit=max_turns,
+        model_roles={
+            "doctor": DOCTOR_MODEL,
+            "patient": PATIENT_MODEL,
+            "grader": PATIENT_MODEL,
+        },
     )
