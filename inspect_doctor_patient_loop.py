@@ -49,7 +49,7 @@ STOP_MARKER = "DIAGNOSIS READY"
 
 
 @agent
-def doctor(max_turns: int) -> Agent:
+def doctor() -> Agent:
     async def execute(state: AgentState) -> AgentState:
         if not state.messages or not isinstance(state.messages[0], ChatMessageSystem):
             state.messages.insert(
@@ -57,9 +57,10 @@ def doctor(max_turns: int) -> Agent:
                 ChatMessageSystem(
                     content=(
                         "You are a doctor. Ask the patient one question at a "
-                        f"time to build a history. You have at most {max_turns} "
-                        "questions. Once confident, respond with exactly: "
-                        f"'{STOP_MARKER}: <diagnosis>'."
+                        "time to build a history. Before each question you "
+                        "will be told how many you have left. Once confident "
+                        "— or told this is your last question — respond with "
+                        f"exactly: '{STOP_MARKER}: <diagnosis>'."
                     )
                 ),
             )
@@ -69,6 +70,21 @@ def doctor(max_turns: int) -> Agent:
         return state
 
     return execute
+
+
+def turn_reminder(questions_asked: int, max_turns: int) -> str:
+    remaining = max_turns - questions_asked
+    if remaining <= 1:
+        return (
+            f"This is your LAST question ({questions_asked}/{max_turns} used). "
+            "If you still don't have enough information after the patient "
+            f"answers, you must give your diagnosis instead: "
+            f"'{STOP_MARKER}: <diagnosis>'."
+        )
+    return (
+        f"You have asked {questions_asked} of {max_turns} questions "
+        f"({remaining} remaining)."
+    )
 
 
 @agent
@@ -101,14 +117,23 @@ def doctor_patient_loop(max_turns: int = 12) -> Solver:
         doctor_state = AgentState(messages=[])
         patient_state = AgentState(messages=[])
 
-        # turn_limit() counts every generate() call made by either agent
-        # while this context is open, so no manual counter is needed.
-        with apply_limits([turn_limit(max_turns)]):
+        # questions_asked is the real, doctor-facing budget — turn_limit()
+        # below is just a generous backstop against runaway loops, since it
+        # counts every generate() call from *both* agents combined (so it
+        # doesn't map onto "how many questions the doctor has left").
+        with apply_limits([turn_limit(max_turns * 2 + 4)]):
             try:
+                questions_asked = 0
                 while True:
-                    doctor_state = await run(doctor(max_turns), doctor_state)
+                    doctor_state.messages.append(
+                        ChatMessageUser(
+                            content=turn_reminder(questions_asked, max_turns)
+                        )
+                    )
+                    doctor_state = await run(doctor(), doctor_state)
+                    questions_asked += 1
                     question = doctor_state.output.completion
-                    if STOP_MARKER in question:
+                    if STOP_MARKER in question or questions_asked >= max_turns:
                         break
 
                     patient_state.messages.append(ChatMessageUser(content=question))
