@@ -13,18 +13,29 @@ Task.model_roles instead of both defaulting to the run's --model:
 - patient / grader: Qwen2.5-7B-Instruct, so the patient's answers and the
   final grading aren't produced by the same model being evaluated.
 
+Loads real cases from MediQ's CRAFT-MD dataset (all_craft_md.jsonl), same
+remapping as inspect_mediq_craftmd.py: `context` becomes the patient's full
+record, `answer` becomes the free-text Sample target, and the doctor gets a
+generic instruction instead of MediQ's own QCM-flavored question.
+
 Run (still needs a --model on the CLI for Inspect's own bookkeeping, even
 though doctor/patient/grader are all resolved via model_roles in code):
-    inspect eval inspect_meditron_doctor.py --model vllm/Qwen/Qwen2.5-7B-Instruct
+    inspect eval inspect_meditron_doctor.py \
+        --model vllm/Qwen/Qwen2.5-7B-Instruct \
+        -T limit=20
 """
 
 from inspect_ai import Task, task
 from inspect_ai.agent import Agent, AgentState, agent, run
-from inspect_ai.dataset import Sample
+from inspect_ai.dataset import Sample, json_dataset
 from inspect_ai.model import ChatMessageSystem, ChatMessageUser, get_model
 from inspect_ai.scorer import model_graded_qa
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import LimitExceededError, apply_limits, turn_limit
+
+# Path to MediQ's all_craft_md.jsonl. Defaults to a file alongside this
+# script; override with -T dataset_path=/abs/path/all_craft_md.jsonl.
+MEDIQ_CRAFTMD_PATH = "all_craft_md.jsonl"
 
 # Two separate vLLM servers share one GPU here (doctor + patient), so each
 # must be capped well under the ~0.9 default gpu_memory_utilization or the
@@ -36,18 +47,18 @@ PATIENT_MODEL = get_model(
     "vllm/Qwen/Qwen2.5-7B-Instruct", gpu_memory_utilization=0.45
 )
 
-FULL_RECORD = """
-Woman, 35 years old.
-History: diplopia for 1 month, difficulty climbing stairs, symptoms worsen
-with exertion and improve with rest.
-Symptoms: diplopia, upper limb weakness, fatigability.
-Test results (only reveal if a matching test is requested):
-anti-AChR antibodies positive, Tensilon test shows transient improvement,
-CBC normal.
-"""
-
-DIAGNOSIS = "Myasthenia gravis"
 STOP_MARKER = "DIAGNOSIS READY"
+
+
+def record_to_sample(record: dict) -> Sample:
+    # record["question"] says "which of the following" — wrong once we drop
+    # the options and ask for a free-text diagnosis instead of a QCM pick.
+    return Sample(
+        id=record["id"],
+        input="Please examine the patient and state the most likely diagnosis.",
+        target=record["answer"],
+        metadata={"full_record": " ".join(record["context"])},
+    )
 
 
 @agent
@@ -96,6 +107,10 @@ def patient(full_record: str) -> Agent:
 @solver
 def doctor_patient_loop(max_turns: int = 12) -> Solver:
     async def solve(state: TaskState, generate: Generate) -> TaskState:
+        # built per-sample so the patient is wired to *this* sample's own
+        # full_record, not a record shared across the whole dataset
+        full_record = state.metadata["full_record"]
+
         doctor_state = AgentState(messages=[])
         patient_state = AgentState(messages=[])
 
@@ -108,7 +123,7 @@ def doctor_patient_loop(max_turns: int = 12) -> Solver:
                         break
 
                     patient_state.messages.append(ChatMessageUser(content=question))
-                    patient_state = await run(patient(FULL_RECORD), patient_state)
+                    patient_state = await run(patient(full_record), patient_state)
                     answer = patient_state.output.completion
 
                     doctor_state.messages.append(ChatMessageUser(content=answer))
@@ -123,11 +138,15 @@ def doctor_patient_loop(max_turns: int = 12) -> Solver:
 
 
 @task
-def meditron_doctor_qwen_patient(max_turns: int = 12) -> Task:
+def meditron_doctor_qwen_patient(
+    dataset_path: str = MEDIQ_CRAFTMD_PATH,
+    limit: int | None = 20,
+    max_turns: int = 15,
+) -> Task:
     return Task(
-        dataset=[
-            Sample(input="Please examine and diagnose the patient.", target=DIAGNOSIS)
-        ],
+        dataset=json_dataset(
+            dataset_path, sample_fields=record_to_sample, limit=limit
+        ),
         solver=doctor_patient_loop(max_turns),
         scorer=model_graded_qa(),
         model_roles={
