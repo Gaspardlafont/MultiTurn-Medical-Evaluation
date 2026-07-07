@@ -26,8 +26,15 @@ from inspect_ai.scorer import model_graded_qa
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import LimitExceededError, apply_limits, turn_limit
 
-DOCTOR_MODEL = "vllm/EPFLiGHT/Apertus-8B-MeditronFO"
-PATIENT_MODEL = "vllm/Qwen/Qwen2.5-7B-Instruct"
+# Two separate vLLM servers share one GPU here (doctor + patient), so each
+# must be capped well under the ~0.9 default gpu_memory_utilization or the
+# second server to start fails to allocate and crashes on launch.
+DOCTOR_MODEL = get_model(
+    "vllm/EPFLiGHT/Apertus-8B-MeditronFO", gpu_memory_utilization=0.45
+)
+PATIENT_MODEL = get_model(
+    "vllm/Qwen/Qwen2.5-7B-Instruct", gpu_memory_utilization=0.45
+)
 
 FULL_RECORD = """
 Woman, 35 years old.
