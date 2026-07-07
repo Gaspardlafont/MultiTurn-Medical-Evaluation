@@ -16,7 +16,12 @@ from inspect_ai.scorer import model_graded_qa
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import LimitExceededError, apply_limits, turn_limit
 
-FULL_RECORD = """
+# One full_record per case, carried in Sample.metadata so each sample's
+# patient is built from *its own* record rather than a shared constant.
+CASES = [
+    {
+        "diagnosis": "Myasthenia gravis",
+        "full_record": """
 Woman, 35 years old.
 History: diplopia for 1 month, difficulty climbing stairs, symptoms worsen
 with exertion and improve with rest.
@@ -24,9 +29,22 @@ Symptoms: diplopia, upper limb weakness, fatigability.
 Test results (only reveal if a matching test is requested):
 anti-AChR antibodies positive, Tensilon test shows transient improvement,
 CBC normal.
-"""
+""",
+    },
+    {
+        "diagnosis": "Pulmonary embolism",
+        "full_record": """
+Man, 60 years old.
+History: sudden-onset dyspnea and pleuritic chest pain, recent long-haul
+flight, painful right calf.
+Symptoms: dyspnea, chest pain, tachycardia.
+Test results (only reveal if a matching test is requested):
+elevated D-dimer, CT angiography shows right lobar perfusion defect,
+ECG shows sinus tachycardia.
+""",
+    },
+]
 
-DIAGNOSIS = "Myasthenia gravis"
 STOP_MARKER = "DIAGNOSIS READY"
 
 
@@ -76,6 +94,10 @@ def patient(full_record: str) -> Agent:
 @solver
 def doctor_patient_loop(max_turns: int = 12) -> Solver:
     async def solve(state: TaskState, generate: Generate) -> TaskState:
+        # built per-sample so the patient is wired to *this* sample's own
+        # full_record, not a record shared across the whole dataset
+        full_record = state.metadata["full_record"]
+
         doctor_state = AgentState(messages=[])
         patient_state = AgentState(messages=[])
 
@@ -90,7 +112,7 @@ def doctor_patient_loop(max_turns: int = 12) -> Solver:
                         break
 
                     patient_state.messages.append(ChatMessageUser(content=question))
-                    patient_state = await run(patient(FULL_RECORD), patient_state)
+                    patient_state = await run(patient(full_record), patient_state)
                     answer = patient_state.output.completion
 
                     doctor_state.messages.append(ChatMessageUser(content=answer))
@@ -108,7 +130,12 @@ def doctor_patient_loop(max_turns: int = 12) -> Solver:
 def agentclinic_manual_loop(max_turns: int = 12) -> Task:
     return Task(
         dataset=[
-            Sample(input="Please examine and diagnose the patient.", target=DIAGNOSIS)
+            Sample(
+                input="Please examine and diagnose the patient.",
+                target=case["diagnosis"],
+                metadata={"full_record": case["full_record"]},
+            )
+            for case in CASES
         ],
         solver=doctor_patient_loop(max_turns),
         scorer=model_graded_qa(),

@@ -85,3 +85,4 @@ Candidate foundation for Stage 1. Quick reference for the pieces we'd actually u
 - **Gaspard**: research existing multi-turn medical benchmarks (AgentClinic, MediQ, HealthBench) and identify common structures
 - **Gaspard**: search for multi-turn benchmarks in African/Indian languages
 - **Gaspard & Zacharie**: write a summary of findings and meet with Fabrice Monday morning to establish a coding plan
+

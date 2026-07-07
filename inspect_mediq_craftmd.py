@@ -1,53 +1,49 @@
 """
-Doctor = a react() agent whose only tool is the patient, exposed via as_tool().
-The patient sees only the current question (as_tool() gives it a fresh
-AgentState per call) and answers from a full record it never reveals directly.
+Same doctor (react + as_tool patient) architecture as inspect_doctor_as_tool.py,
+but loading real cases from MediQ's CRAFT-MD dataset (all_craft_md.jsonl)
+instead of two hardcoded toy cases.
+
+Reframed for free-text grading instead of MediQ's own QCM: each record's
+`context` (the clinical vignette) becomes the patient's full record, its
+`answer` (the correct option's text, not the letter) becomes the Sample
+target, and `question` is the only thing given to the doctor — no options
+are shown, so the doctor must produce a free-text diagnosis, graded by
+model_graded_qa() instead of matched against a multiple-choice letter.
 
 Run:
-    inspect eval inspect_doctor_as_tool.py --model openai/gpt-4o
+    inspect eval inspect_mediq_craftmd.py \
+        --model vllm/Qwen/Qwen2.5-7B-Instruct \
+        -M enable_auto_tool_choice=true -M tool_call_parser=hermes \
+        -T limit=20
 """
 
 from inspect_ai import Task, task
 from inspect_ai.agent import Agent, AgentState, agent, as_tool, react, run
-from inspect_ai.dataset import Sample
+from inspect_ai.dataset import Sample, json_dataset
 from inspect_ai.model import ChatMessageSystem, get_model
 from inspect_ai.scorer import model_graded_qa
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 
-# One full_record per case, carried in Sample.metadata so each sample's
-# patient tool is built from *its own* record rather than a shared constant.
-CASES = [
-    {
-        "diagnosis": "Myasthenia gravis",
-        "full_record": """
-Woman, 35 years old.
-History: diplopia for 1 month, difficulty climbing stairs, symptoms worsen
-with exertion and improve with rest.
-Symptoms: diplopia, upper limb weakness, fatigability.
-Test results (only reveal if a matching test is requested):
-anti-AChR antibodies positive, Tensilon test shows transient improvement,
-CBC normal.
-""",
-    },
-    {
-        "diagnosis": "Pulmonary embolism",
-        "full_record": """
-Man, 60 years old.
-History: sudden-onset dyspnea and pleuritic chest pain, recent long-haul
-flight, painful right calf.
-Symptoms: dyspnea, chest pain, tachycardia.
-Test results (only reveal if a matching test is requested):
-elevated D-dimer, CT angiography shows right lobar perfusion defect,
-ECG shows sinus tachycardia.
-""",
-    },
-]
+# Path to MediQ's all_craft_md.jsonl. Defaults to a file alongside this
+# script; override with -T dataset_path=/abs/path/all_craft_md.jsonl.
+MEDIQ_CRAFTMD_PATH = "all_craft_md.jsonl"
 
 DOCTOR_PROMPT = (
     "You are a doctor trying to reach a diagnosis. Ask the patient tool one "
     "question at a time to build a history. Once you are confident, call "
     "submit() with your final diagnosis."
 )
+
+
+def record_to_sample(record: dict) -> Sample:
+    # record["question"] says "which of the following" — wrong once we drop
+    # the options and ask for a free-text diagnosis instead of a QCM pick.
+    return Sample(
+        id=record["id"],
+        input="Please examine the patient and state the most likely diagnosis.",
+        target=record["answer"],
+        metadata={"full_record": " ".join(record["context"])},
+    )
 
 
 @agent
@@ -102,16 +98,15 @@ def doctor_with_patient_tool() -> Solver:
 
 
 @task
-def agentclinic_as_tool(max_turns: int = 12) -> Task:
+def mediq_craftmd_as_tool(
+    dataset_path: str = MEDIQ_CRAFTMD_PATH,
+    limit: int | None = 20,
+    max_turns: int = 12,
+) -> Task:
     return Task(
-        dataset=[
-            Sample(
-                input="Please examine and diagnose the patient.",
-                target=case["diagnosis"],
-                metadata={"full_record": case["full_record"]},
-            )
-            for case in CASES
-        ],
+        dataset=json_dataset(
+            dataset_path, sample_fields=record_to_sample, limit=limit
+        ),
         solver=doctor_with_patient_tool(),
         scorer=model_graded_qa(),
         turn_limit=max_turns,
