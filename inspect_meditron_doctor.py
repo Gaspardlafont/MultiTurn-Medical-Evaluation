@@ -1,51 +1,64 @@
 """
-Doctor and patient as two independent agents, manually alternated in a while
-loop (no tool-calling) until the doctor emits a diagnosis or the shared turn
-budget runs out. Same shape as AgentClinic's own main() loop, rewritten on
-Inspect's Agent/run()/turn_limit() primitives instead of raw strings.
+Doctor/patient manual loop (same shape as inspect_doctor_patient_loop.py),
+but with the doctor and patient pinned to *different* models via
+Task.model_roles instead of both defaulting to the run's --model:
 
-Run:
-    inspect eval inspect_doctor_patient_loop.py --model openai/gpt-4o
+- doctor: EPFLiGHT/Apertus-8B-MeditronFO — LiGHT's medical specialist model
+  (Apertus-8B-Instruct fine-tuned on the Fully Open Meditron corpus). No
+  tools are used here (no react()/as_tool()) — the doctor just emits plain
+  text with a stop marker, exactly like inspect_doctor_patient_loop.py —
+  because Apertus's chat_template errors out when a non-empty `tools` list
+  is present in the request (see inspect_mediq_craftmd.py's docstring for
+  the exact failure).
+- patient / grader: Qwen2.5-7B-Instruct, so the patient's answers and the
+  final grading aren't produced by the same model being evaluated.
+
+Loads real cases from MediQ's CRAFT-MD dataset (all_craft_md.jsonl), same
+remapping as inspect_mediq_craftmd.py: `context` becomes the patient's full
+record, `answer` becomes the free-text Sample target, and the doctor gets a
+generic instruction instead of MediQ's own QCM-flavored question.
+
+Run (still needs a --model on the CLI for Inspect's own bookkeeping, even
+though doctor/patient/grader are all resolved via model_roles in code):
+    inspect eval inspect_meditron_doctor.py \
+        --model vllm/Qwen/Qwen2.5-7B-Instruct \
+        -T limit=20
 """
 
 from inspect_ai import Task, task
 from inspect_ai.agent import Agent, AgentState, agent, run
-from inspect_ai.dataset import Sample
+from inspect_ai.dataset import Sample, json_dataset
 from inspect_ai.model import ChatMessageSystem, ChatMessageUser, get_model
 from inspect_ai.scorer import model_graded_qa
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 from inspect_ai.util import LimitExceededError, apply_limits, turn_limit
 
-# One full_record per case, carried in Sample.metadata so each sample's
-# patient is built from *its own* record rather than a shared constant.
-CASES = [
-    {
-        "diagnosis": "Myasthenia gravis",
-        "full_record": """
-Woman, 35 years old.
-History: diplopia for 1 month, difficulty climbing stairs, symptoms worsen
-with exertion and improve with rest.
-Symptoms: diplopia, upper limb weakness, fatigability.
-Test results (only reveal if a matching test is requested):
-anti-AChR antibodies positive, Tensilon test shows transient improvement,
-CBC normal.
-""",
-    },
-    {
-        "diagnosis": "Pulmonary embolism",
-        "full_record": """
-Man, 60 years old.
-History: sudden-onset dyspnea and pleuritic chest pain, recent long-haul
-flight, painful right calf.
-Symptoms: dyspnea, chest pain, tachycardia.
-Test results (only reveal if a matching test is requested):
-elevated D-dimer, CT angiography shows right lobar perfusion defect,
-ECG shows sinus tachycardia.
-""",
-    },
-]
+# Path to MediQ's all_craft_md.jsonl. Defaults to a file alongside this
+# script; override with -T dataset_path=/abs/path/all_craft_md.jsonl.
+MEDIQ_CRAFTMD_PATH = "all_craft_md.jsonl"
+
+# Two separate vLLM servers share one GPU here (doctor + patient), so each
+# must be capped well under the ~0.9 default gpu_memory_utilization or the
+# second server to start fails to allocate and crashes on launch.
+DOCTOR_MODEL = get_model(
+    "vllm/EPFLiGHT/Apertus-8B-MeditronFO", gpu_memory_utilization=0.45
+)
+PATIENT_MODEL = get_model(
+    "vllm/Qwen/Qwen2.5-7B-Instruct", gpu_memory_utilization=0.45
+)
 
 STOP_MARKER = "DIAGNOSIS READY"
+
+
+def record_to_sample(record: dict) -> Sample:
+    # record["question"] says "which of the following" — wrong once we drop
+    # the options and ask for a free-text diagnosis instead of a QCM pick.
+    return Sample(
+        id=record["id"],
+        input="Please examine the patient and state the most likely diagnosis.",
+        target=record["answer"],
+        metadata={"full_record": " ".join(record["context"])},
+    )
 
 
 @agent
@@ -64,7 +77,7 @@ def doctor() -> Agent:
                     )
                 ),
             )
-        output = await get_model().generate(state.messages)
+        output = await get_model(role="doctor").generate(state.messages)
         state.output = output
         state.messages.append(output.message)
         return state
@@ -99,7 +112,7 @@ def patient(full_record: str) -> Agent:
                 "asked for."
             )
         )
-        output = await get_model().generate([system, *state.messages])
+        output = await get_model(role="patient").generate([system, *state.messages])
         state.output = output
         state.messages.append(output.message)
         return state
@@ -152,16 +165,20 @@ def doctor_patient_loop(max_turns: int = 12) -> Solver:
 
 
 @task
-def agentclinic_manual_loop(max_turns: int = 12) -> Task:
+def meditron_doctor_qwen_patient(
+    dataset_path: str = MEDIQ_CRAFTMD_PATH,
+    limit: int | None = 20,
+    max_turns: int = 15,
+) -> Task:
     return Task(
-        dataset=[
-            Sample(
-                input="Please examine and diagnose the patient.",
-                target=case["diagnosis"],
-                metadata={"full_record": case["full_record"]},
-            )
-            for case in CASES
-        ],
+        dataset=json_dataset(
+            dataset_path, sample_fields=record_to_sample, limit=limit
+        ),
         solver=doctor_patient_loop(max_turns),
         scorer=model_graded_qa(),
+        model_roles={
+            "doctor": DOCTOR_MODEL,
+            "patient": PATIENT_MODEL,
+            "grader": PATIENT_MODEL,
+        },
     )
