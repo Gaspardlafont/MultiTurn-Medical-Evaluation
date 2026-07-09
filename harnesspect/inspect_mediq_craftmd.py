@@ -13,18 +13,33 @@ model_graded_qa() instead of matched against a multiple-choice letter.
 Doctor is EPFLiGHT/Apertus-8B-MeditronFO, patient/grader are Qwen2.5-7B-Instruct
 (so the patient's answers and the final grading aren't produced by the model
 being evaluated). Unlike inspect_meditron_doctor.py, this file still uses
-react()/as_tool() for the doctor, which requires tool-calling support — it is
-NOT verified that Apertus-8B-MeditronFO supports vLLM's Hermes tool-call
-parser; enable_auto_tool_choice/tool_call_parser below is a best-effort guess
-to test empirically, not a confirmed-working config. If the server fails to
-start with a tool-calling-related error, fall back to
-inspect_meditron_doctor.py (no tool-calling required there).
+react()/as_tool() for the doctor, which requires tool-calling support.
+
+Apertus's chat_template.jinja (both on the base swiss-ai/Apertus-8B-Instruct-2509
+and inherited as-is by this fine-tune) renders each tool as `tool.description`/
+`tool.name` — a flat schema — while Inspect/vLLM send the standard OpenAI
+nested schema (`tool.function.description`), which crashes the template with
+"'dict object' has no attribute 'description'".
+
+Selecting vLLM's native "apertus" tool-call *parser* alone does NOT fix this —
+verified empirically: it still crashed with the identical error, because the
+parser only affects how vLLM interprets the model's generated output, not how
+the incoming `tools` list gets rendered into the prompt. The actual fix lives
+in a separate bundled template, examples/tool_chat_template_apertus.jinja
+(from vllm-project/vllm#26307, superseded by #41154), which is NOT applied
+automatically — it has to be passed explicitly via --chat-template. A copy is
+checked into this repo as tool_chat_template_apertus.jinja (same directory as
+this script) since the pip-installed vllm package doesn't necessarily ship its
+examples/ folder. If this still fails, fall back to inspect_meditron_doctor.py
+(no tool-calling required there).
 
 Run:
     inspect eval inspect_mediq_craftmd.py \
         --model vllm/Qwen/Qwen2.5-7B-Instruct \
         -T limit=20
 """
+
+from pathlib import Path
 
 from inspect_ai import Task, task
 from inspect_ai.agent import Agent, AgentState, agent, as_tool, react, run
@@ -37,13 +52,13 @@ from inspect_ai.solver import Generate, Solver, TaskState, solver
 # script; override with -T dataset_path=/abs/path/all_craft_md.jsonl.
 MEDIQ_CRAFTMD_PATH = "all_craft_md.jsonl"
 
-# Tool-call support here is an unverified guess (see module docstring) —
-# baked into the model instance since -M CLI flags only configure whatever
-# --model is passed on the command line, not models resolved via model_roles.
+APERTUS_CHAT_TEMPLATE = Path(__file__).parent / "tool_chat_template_apertus.jinja"
+
 DOCTOR_MODEL = get_model(
     "vllm/EPFLiGHT/Apertus-8B-MeditronFO",
     enable_auto_tool_choice=True,
-    tool_call_parser="hermes",
+    tool_call_parser="apertus",
+    chat_template=str(APERTUS_CHAT_TEMPLATE),
 )
 PATIENT_MODEL = "vllm/Qwen/Qwen2.5-7B-Instruct"
 
