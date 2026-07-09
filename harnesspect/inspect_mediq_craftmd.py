@@ -54,13 +54,19 @@ MEDIQ_CRAFTMD_PATH = "all_craft_md.jsonl"
 
 APERTUS_CHAT_TEMPLATE = Path(__file__).parent / "tool_chat_template_apertus.jinja"
 
+# Two separate vLLM servers share one GPU here (doctor + patient), so each
+# must be capped well under the ~0.9 default gpu_memory_utilization or the
+# second server to start fails to allocate and crashes on launch.
 DOCTOR_MODEL = get_model(
     "vllm/EPFLiGHT/Apertus-8B-MeditronFO",
     enable_auto_tool_choice=True,
     tool_call_parser="apertus",
     chat_template=str(APERTUS_CHAT_TEMPLATE),
+    gpu_memory_utilization=0.45,
 )
-PATIENT_MODEL = "vllm/Qwen/Qwen2.5-7B-Instruct"
+PATIENT_MODEL = get_model(
+    "vllm/Qwen/Qwen2.5-7B-Instruct", gpu_memory_utilization=0.45
+)
 
 DOCTOR_PROMPT = (
     "You are a doctor trying to reach a diagnosis. Ask the patient tool one "
