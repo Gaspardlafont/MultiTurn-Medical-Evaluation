@@ -12,6 +12,7 @@ Upstream deps (torch, the MediQ src modules) are imported lazily inside
 from __future__ import annotations
 
 import json
+import logging
 import os
 import sys
 from types import SimpleNamespace
@@ -90,6 +91,15 @@ class MediQTask(MultiTurnTask):
         mq.args = args
         mq.history_logger = None
         mq.detail_logger = None
+
+        # MediQ's expert_functions.log_info() keeps its `logger` arg as the
+        # string "detail_logger" unless that name is already registered in
+        # Python's logging system, then calls .info() on it -> AttributeError.
+        # Registering the names (no handlers -> INFO messages are dropped)
+        # makes that string->logger conversion succeed. Zero upstream edits.
+        for _name in ("detail_logger", "message_logger", "history_logger",
+                      "results_logger"):
+            logging.getLogger(_name)
 
         data_path = os.path.join(data_dir or _MEDIQ_DATA, dev_filename)
         with open(data_path) as f:
