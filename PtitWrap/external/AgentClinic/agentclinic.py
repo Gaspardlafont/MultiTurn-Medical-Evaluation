@@ -176,8 +176,17 @@ def query_model(model_str, prompt, system_prompt, tries=30, timeout=20.0, image_
             # server exposing an OpenAI-compatible endpoint, since vLLM was not
             # natively supported in the public repo at time of use.
             elif "VLLM_" in model_str:
-                vllm_model_name = model_str.replace("VLLM_", "")
-                client = openai.OpenAI(base_url="http://localhost:8000/v1", api_key="none")
+                # Optional "VLLM_<port>:<model>" form lets different VLLM_
+                # models be routed to different local vLLM servers (e.g. one
+                # port per model, to keep the judge off the model under test).
+                # Plain "VLLM_<model>" (no port) still defaults to 8000,
+                # unchanged from before.
+                vllm_spec = model_str.replace("VLLM_", "", 1)
+                if ":" in vllm_spec and vllm_spec.split(":", 1)[0].isdigit():
+                    vllm_port, vllm_model_name = vllm_spec.split(":", 1)
+                else:
+                    vllm_port, vllm_model_name = "8000", vllm_spec
+                client = openai.OpenAI(base_url=f"http://localhost:{vllm_port}/v1", api_key="none")
                 messages = [
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt}]
