@@ -34,6 +34,7 @@ class MediQTask(MultiTurnTask):
     def run(
         self,
         model: LM,
+        judge_model: LM | None = None,
         expert_class: str = "FixedExpert",
         patient_class: str = "InstructPatient",
         dev_filename: str = "all_dev_good.jsonl",
@@ -52,11 +53,18 @@ class MediQTask(MultiTurnTask):
         import expert as expert_mod
         import mediQ_benchmark as mq
 
-        # --- inject our model in place of MediQ's get_response ------------------
+        # --- inject our model(s) in place of MediQ's get_response --------------
+        # Route by the role sentinel MediQ passes as model_name (set below):
+        # the expert/question-generator use the model under test, the patient
+        # uses judge_model (defaults to the same model in single-model mode).
+        judge = judge_model or model
+        role_to_lm = {"PRIMARY": model, "AUX": judge}
+
         # Returns MediQ's expected (response_text, logprobs, usage) triple.
-        def patched_get_response(messages, model_name=None, use_vllm=False,
+        def patched_get_response(messages, model_name="PRIMARY", use_vllm=False,
                                  use_api=None, **kw):
-            text = model.chat(messages)
+            lm = role_to_lm.get(model_name, model)
+            text = lm.chat(messages)
             usage = {"input_tokens": 0, "output_tokens": 0}
             return text, None, usage
 
@@ -72,9 +80,10 @@ class MediQTask(MultiTurnTask):
         # --- args object MediQ's Expert/Patient read from ----------------------
         args = SimpleNamespace(
             max_questions=max_questions,
-            expert_model="harness",
-            expert_model_question_generator="harness",
-            patient_model="harness",
+            # role sentinels -> routed by patched_get_response above
+            expert_model="PRIMARY",
+            expert_model_question_generator="PRIMARY",
+            patient_model="AUX",
             independent_modules=False,
             rationale_generation=False,
             self_consistency=1,

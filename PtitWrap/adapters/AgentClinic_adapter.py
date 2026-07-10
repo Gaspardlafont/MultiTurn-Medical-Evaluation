@@ -52,6 +52,7 @@ class AgentClinicTask(MultiTurnTask):
     def run(
         self,
         model: LM,
+        judge_model: LM | None = None,
         dataset: str = "MedQA",
         num_scenarios: int = 1,
         total_inferences: int = 20,
@@ -65,11 +66,17 @@ class AgentClinicTask(MultiTurnTask):
             sys.path.insert(0, _AGENTCLINIC_DIR)
         import agentclinic as ac
 
-        # --- inject our model in place of AgentClinic's query_model ------------
-        # model_str is ignored: one model plays doctor/patient/measurement/
-        # moderator in v1 (role separation is a future extension).
+        # --- inject our model(s) in place of AgentClinic's query_model --------
+        # Route by the role sentinel passed as model_str (set in main() below):
+        # the doctor (under test) uses `model`; patient/measurement/moderator
+        # use judge_model. A separate judge is what removes the self-grading
+        # confound (the model under test otherwise judges its own diagnosis).
+        judge = judge_model or model
+        role_to_lm = {"PRIMARY": model, "AUX": judge}
+
         def patched_query_model(model_str, prompt, system_prompt, *args, **kw):
-            return model.generate(prompt, system_prompt)
+            lm = role_to_lm.get(model_str, model)
+            return lm.generate(prompt, system_prompt)
 
         ac.query_model = patched_query_model
 
@@ -93,18 +100,20 @@ class AgentClinicTask(MultiTurnTask):
         prev_cwd = os.getcwd()
         os.chdir(_AGENTCLINIC_DIR)
         try:
-            # "harness" as every *_llm avoids AgentClinic's replicate/anthropic
-            # provider branches; query_model is patched regardless.
+            # Role sentinels routed by patched_query_model above; also avoid
+            # AgentClinic's replicate/anthropic/HF_ provider branches (none of
+            # these strings match those lists). doctor = model under test;
+            # patient/measurement/moderator = judge_model.
             ac.main(
                 api_key="EMPTY",
                 replicate_api_key="EMPTY",
                 inf_type="llm",
                 doctor_bias=doctor_bias,
                 patient_bias=patient_bias,
-                doctor_llm="harness",
-                patient_llm="harness",
-                measurement_llm="harness",
-                moderator_llm="harness",
+                doctor_llm="PRIMARY",
+                patient_llm="AUX",
+                measurement_llm="AUX",
+                moderator_llm="AUX",
                 num_scenarios=num_scenarios,
                 dataset=dataset,
                 img_request=False,

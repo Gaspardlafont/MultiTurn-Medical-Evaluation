@@ -66,6 +66,34 @@ python -m PtitWrap.cli --model openai-chat \
     --task mediq --task_args limit=3 --output results/mediq_run.json
 ```
 
+### Role separation (avoiding the self-grading confound)
+
+By default one model plays every role. Pass `--judge_model` to run the
+patient/measurement/judge roles on a *different* model than the doctor under
+test — otherwise the model judges its own diagnosis (and can score a wrong or
+even empty answer as correct). The doctor uses `--model`; everyone else uses
+`--judge_model`.
+
+```bash
+# Doctor = local Meditron (in-process vLLM); judge/patient = a separate API model.
+# No extra GPU RAM: the judge runs off-box via an API.
+python -m PtitWrap.cli \
+    --model vllm --model_args pretrained=EPFLiGHT/Apertus-8B-MeditronFO,max_model_len=4096 \
+    --judge_model openai-chat --judge_model_args model=gpt-4o-mini,api_key_env=OPENAI_API_KEY \
+    --task agentclinic --task_args num_scenarios=5,total_inferences=20
+
+# Both local: two vLLM *servers* (one per GPU, or one GPU with memory caps),
+# reached over their OpenAI-compatible endpoints on different ports.
+python -m PtitWrap.cli \
+    --model openai-chat --model_args model=EPFLiGHT/Apertus-8B-MeditronFO,base_url=http://localhost:8000/v1 \
+    --judge_model openai-chat --judge_model_args model=Qwen/Qwen2.5-7B-Instruct,base_url=http://localhost:8001/v1 \
+    --task agentclinic --task_args num_scenarios=5
+```
+
+Note: two *in-process* `vllm` models in one process both target GPU 0. For two
+local models on two GPUs, run two vLLM servers (pinned via `CUDA_VISIBLE_DEVICES`)
+and reach them with the `openai-chat` backend, as in the second example.
+
 `--model_args` / `--task_args` are `key=value,key=value` strings (types coerced
 automatically), exactly like lm-eval. Metrics print to stdout; `--output`
 writes the full per-sample JSON.
@@ -91,10 +119,14 @@ The harness core needs nothing heavy. Each path pulls its own:
 - `agentclinic` task → `transformers`; `anthropic`/`replicate` are optional
   (auto-stubbed if absent, since we never call those provider branches).
 
-## Status / limitations (v1)
+## Status / limitations
 
-- One model plays every role (doctor/patient/judge). Role separation — e.g. a
-  separate judge to avoid the self-grading confound — is a clean future
-  extension (give the task a role→model map instead of a single `model`).
+- Role separation is supported via `--judge_model` (see above). Without it, one
+  model plays every role — fine for a quick smoke test, but the accuracy is not
+  trustworthy (the model judges its own diagnosis).
+- **Role bleeding (open):** with no stop-sequence in AgentClinic's plain-text
+  loop, a rambling model can generate *both* the doctor's question and the
+  patient's reply in one turn. Exposing `max_tokens`/stop-sequences through the
+  backend would mitigate this — not yet done.
 - AgentClinic image requests aren't forwarded to the model (upstream only
   wires images for OpenAI vision models); text-only for now.
