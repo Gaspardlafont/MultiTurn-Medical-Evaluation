@@ -48,11 +48,16 @@ class MultiTurnTask(abc.ABC):
     name: str = "task"
 
     @abc.abstractmethod
-    def run(self, model: LM, **task_args) -> EvalResult:
-        """Run the benchmark end-to-end using ``model`` for all model calls.
+    def run(self, model: LM, judge_model: LM | None = None, **task_args) -> EvalResult:
+        """Run the benchmark end-to-end.
 
         Args:
-            model: the LM every role/agent in the benchmark should use.
+            model: the LM under test — plays the *doctor/expert* role.
+            judge_model: optional separate LM for every *other* role
+                (patient, measurement, moderator/judge). Defaults to ``model``
+                when ``None`` (single-model mode). Passing a distinct model
+                here avoids the self-grading confound where the model under
+                test also simulates the patient and judges its own diagnosis.
             task_args: benchmark-specific options (dataset, limits, ...).
 
         Returns:

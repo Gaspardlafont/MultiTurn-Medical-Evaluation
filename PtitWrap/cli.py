@@ -38,9 +38,15 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     p.add_argument("--model", required=True,
-                   help="Registered model backend: openai-chat | vllm")
+                   help="Model under test (doctor/expert): openai-chat | vllm")
     p.add_argument("--model_args", default="",
                    help="Comma-separated key=value args for the model backend.")
+    p.add_argument("--judge_model", default=None,
+                   help="Optional separate model for the other roles "
+                        "(patient/measurement/judge). Defaults to --model. "
+                        "Use a distinct model to avoid the self-grading confound.")
+    p.add_argument("--judge_model_args", default="",
+                   help="Comma-separated key=value args for the judge model.")
     p.add_argument("--task", required=True,
                    help="Registered task: mediq | agentclinic")
     p.add_argument("--task_args", default="",
@@ -53,14 +59,21 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
 
-    # Resolve both names (cheap) before instantiating the model (which may load
+    # Resolve all names (cheap) before instantiating any model (which may load
     # a multi-GB checkpoint), so a typo fails fast instead of after the load.
     model_cls = get_model(args.model)
+    judge_cls = get_model(args.judge_model) if args.judge_model else None
     task = get_task(args.task)()
     task_args = simple_parse_args_string(args.task_args)
 
     model = model_cls.create_from_arg_string(args.model_args)
-    result = task.run(model, **task_args)
+    judge_model = (
+        judge_cls.create_from_arg_string(args.judge_model_args)
+        if judge_cls
+        else None
+    )
+
+    result = task.run(model, judge_model=judge_model, **task_args)
     result.model_args = args.model_args
     payload = result.to_dict()
 
