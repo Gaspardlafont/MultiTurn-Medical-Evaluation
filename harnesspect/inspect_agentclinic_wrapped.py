@@ -117,7 +117,10 @@ def agentclinic_wrapped_loop(max_turns: int = 20) -> Solver:
                 ]
             )
             doctor_dialogue = output.completion
-            doctor_agent.agent_hist += doctor_prompt + "\n\n" + doctor_dialogue + "\n\n"
+            # Append the raw exchange, not the reconstructed prompt — matches
+            # their `self.agent_hist += question + "\n\n" + answer + "\n\n"`
+            # in DoctorAgent.inference_doctor() (question == pi_dialogue here).
+            doctor_agent.agent_hist += pi_dialogue + "\n\n" + doctor_dialogue + "\n\n"
             doctor_agent.infs += 1
             state.messages.append(ChatMessageAssistant(content=doctor_dialogue))
 
@@ -141,7 +144,10 @@ def agentclinic_wrapped_loop(max_turns: int = 20) -> Solver:
                     ]
                 )
                 pi_dialogue = meas_output.completion
-                meas_agent.agent_hist += meas_prompt + "\n\n" + pi_dialogue + "\n\n"
+                # Raw exchange again — matches
+                # MeasurementAgent.inference_measurement() (question ==
+                # doctor_dialogue there).
+                meas_agent.agent_hist += doctor_dialogue + "\n\n" + pi_dialogue + "\n\n"
                 patient_agent.add_hist(pi_dialogue)
                 state.messages.append(
                     ChatMessageUser(content=f"[measurement] {pi_dialogue}")
@@ -163,7 +169,9 @@ def agentclinic_wrapped_loop(max_turns: int = 20) -> Solver:
                     ]
                 )
                 pi_dialogue = patient_output.completion
-                patient_agent.agent_hist += patient_prompt + "\n\n" + pi_dialogue + "\n\n"
+                # Raw exchange again — matches PatientAgent.inference_patient()
+                # (question == doctor_dialogue there).
+                patient_agent.agent_hist += doctor_dialogue + "\n\n" + pi_dialogue + "\n\n"
                 meas_agent.add_hist(pi_dialogue)
                 state.messages.append(ChatMessageUser(content=pi_dialogue))
         else:
