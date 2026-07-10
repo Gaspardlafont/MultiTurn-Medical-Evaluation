@@ -29,6 +29,21 @@ _AGENTCLINIC_DIR = os.path.abspath(
 )
 
 
+def _extract_diagnosis(doctor_dialogue: str) -> str:
+    """Pull the stated diagnosis out of a doctor turn.
+
+    AgentClinic signals the final answer with 'DIAGNOSIS READY: <dx>'. Return
+    just the text after that marker (stripped of markdown/asterisks); fall back
+    to the whole turn if the marker isn't found.
+    """
+    marker = "DIAGNOSIS READY"
+    idx = doctor_dialogue.find(marker)
+    if idx == -1:
+        return doctor_dialogue.strip()
+    tail = doctor_dialogue[idx + len(marker):]
+    return tail.lstrip(":* \t\n").strip().strip("*").strip()
+
+
 def _ensure_importable(*module_names: str) -> None:
     """Stub any missing optional module so a pristine import doesn't fail.
 
@@ -78,25 +93,73 @@ class AgentClinicTask(MultiTurnTask):
             lm = role_to_lm.get(model_str, model)
             return lm.generate(prompt, system_prompt)
 
-        ac.query_model = patched_query_model
+        # --- capture per-scene transcripts + outcomes for rich logging --------
+        # AgentClinic's main() only prints; to record structured per-sample data
+        # (like MediQ's output) without editing their file, we wrap the agents'
+        # inference methods (each turn) and compare_results (the verdict). A new
+        # scene record starts each time a DoctorAgent is constructed (once per
+        # scenario in main()).
+        scenes: list[dict] = []
 
-        # Wrap the LLM-judge to record per-scene correctness for our metrics,
-        # without touching their file. Lenient "yes" match (their own == "yes"
-        # is brittle to trailing punctuation).
-        judged: list[bool] = []
+        orig_doctor_init = ac.DoctorAgent.__init__
+        orig_doctor_inf = ac.DoctorAgent.inference_doctor
+        orig_patient_inf = ac.PatientAgent.inference_patient
+        orig_meas_inf = ac.MeasurementAgent.inference_measurement
         original_compare = ac.compare_results
+
+        def patched_doctor_init(self, scenario, *a, **kw):
+            orig_doctor_init(self, scenario, *a, **kw)
+            scenes.append(
+                {
+                    "scenario_id": len(scenes),
+                    "correct": False,  # until a diagnosis is judged correct
+                    "diagnosis": None,  # doctor's final diagnosis text
+                    "correct_answer": scenario.diagnosis_information(),
+                    "reached_diagnosis": False,
+                    "transcript": [],  # ordered doctor/patient/measurement turns
+                }
+            )
+
+        def _record(role, text):
+            if scenes:
+                scenes[-1]["transcript"].append({"role": role, "text": text})
+
+        def patched_doctor_inf(self, question, image_requested=False):
+            out = orig_doctor_inf(self, question, image_requested=image_requested)
+            _record("doctor", out)
+            return out
+
+        def patched_patient_inf(self, question):
+            out = orig_patient_inf(self, question)
+            _record("patient", out)
+            return out
+
+        def patched_meas_inf(self, question):
+            out = orig_meas_inf(self, question)
+            _record("measurement", out)
+            return out
 
         def patched_compare(diagnosis, correct_diagnosis, moderator_llm, mod_pipe):
             verdict = original_compare(
                 diagnosis, correct_diagnosis, moderator_llm, mod_pipe
             )
-            judged.append(verdict.strip().lower().startswith("yes"))
+            correct = verdict.strip().lower().startswith("yes")
+            if scenes:
+                scenes[-1]["reached_diagnosis"] = True
+                scenes[-1]["correct"] = correct
+                # keep just the stated diagnosis, not the whole doctor turn
+                scenes[-1]["diagnosis"] = _extract_diagnosis(diagnosis)
             return verdict
 
+        ac.query_model = patched_query_model
         ac.compare_results = patched_compare
+        ac.DoctorAgent.__init__ = patched_doctor_init
+        ac.DoctorAgent.inference_doctor = patched_doctor_inf
+        ac.PatientAgent.inference_patient = patched_patient_inf
+        ac.MeasurementAgent.inference_measurement = patched_meas_inf
 
         # AgentClinic opens its dataset jsonl by relative path, so run from its
-        # directory; restore cwd afterwards.
+        # directory; restore cwd + upstream methods afterwards.
         prev_cwd = os.getcwd()
         os.chdir(_AGENTCLINIC_DIR)
         try:
@@ -122,21 +185,46 @@ class AgentClinicTask(MultiTurnTask):
             )
         finally:
             os.chdir(prev_cwd)
+            ac.DoctorAgent.__init__ = orig_doctor_init
+            ac.DoctorAgent.inference_doctor = orig_doctor_inf
+            ac.PatientAgent.inference_patient = orig_patient_inf
+            ac.MeasurementAgent.inference_measurement = orig_meas_inf
+            ac.compare_results = original_compare
 
-        n_reached = len(judged)
-        n_correct = sum(judged)
+        # Build per-sample records (mirrors MediQ's output shape).
+        samples = []
+        for sc in scenes:
+            n_doctor_turns = sum(
+                1 for t in sc["transcript"] if t["role"] == "doctor"
+            )
+            # doctor turns minus the final diagnosis turn = questions/actions asked
+            num_questions = max(0, n_doctor_turns - (1 if sc["reached_diagnosis"] else 0))
+            samples.append(
+                {
+                    "scenario_id": sc["scenario_id"],
+                    "correct": sc["correct"],
+                    "diagnosis": sc["diagnosis"],
+                    "correct_answer": sc["correct_answer"],
+                    "reached_diagnosis": sc["reached_diagnosis"],
+                    "num_questions": num_questions,
+                    "transcript": sc["transcript"],
+                }
+            )
+
+        n = len(samples)
+        n_correct = sum(s["correct"] for s in samples)
+        n_reached = sum(s["reached_diagnosis"] for s in samples)
         metrics = {
-            # accuracy over all scenarios attempted (unreached = not counted correct)
-            "accuracy": (n_correct / num_scenarios) if num_scenarios else None,
+            "accuracy": (n_correct / n) if n else None,
             "accuracy_over_reached": (n_correct / n_reached) if n_reached else None,
             "n_reached_diagnosis": n_reached,
-            "num_scenarios": num_scenarios,
+            "num_scenarios": n,
         }
         return EvalResult(
             task=self.name,
             model=type(model).__name__,
             model_args="",
-            n=num_scenarios,
+            n=n,
             metrics=metrics,
-            samples=[{"reached_diagnosis": r} for r in judged],
+            samples=samples,
         )
