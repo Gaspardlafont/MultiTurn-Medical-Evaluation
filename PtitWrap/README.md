@@ -30,7 +30,11 @@ Two ways to bring a model, both registered by name; heavy deps import lazily.
   OpenAI-compatible `/v1/chat/completions` endpoint. Covers the OpenAI API,
   other hosted APIs, **and** a local vLLM *server*. "Bring your API key."
 - **`vllm`** — loads a HuggingFace checkpoint **in-process** with `vllm.LLM`,
-  no server to manage. "Bring your HF model."
+  no server to manage. "Bring your HF model." Best for a single model.
+- **`vllm-server`** — the harness **launches a vLLM server subprocess** for the
+  checkpoint, waits until it's ready, chats over HTTP, and kills it on exit.
+  Same "harness launches it" UX as `vllm`, but lets two models coexist (see
+  role separation below).
 
 ## Task adapters (`adapters/`)
 
@@ -75,24 +79,32 @@ even empty answer as correct). The doctor uses `--model`; everyone else uses
 `--judge_model`.
 
 ```bash
-# Doctor = local Meditron (in-process vLLM); judge/patient = a separate API model.
-# No extra GPU RAM: the judge runs off-box via an API.
+# Both local, harness-launched: the vllm-server backend starts a vLLM server
+# per model itself (no manual server management), sharing one GPU via memory
+# caps. Doctor = Meditron on port 8000, judge/patient = Qwen on port 8001.
+python -m PtitWrap.cli \
+    --model vllm-server --model_args pretrained=EPFLiGHT/Apertus-8B-MeditronFO,port=8000 \
+    --judge_model vllm-server --judge_model_args pretrained=Qwen/Qwen2.5-7B-Instruct,port=8001 \
+    --task agentclinic --task_args num_scenarios=5,total_inferences=20
+
+# Doctor = local Meditron (in-process vLLM); judge/patient = a separate API
+# model. No extra GPU RAM at all: the judge runs off-box via an API.
 python -m PtitWrap.cli \
     --model vllm --model_args pretrained=EPFLiGHT/Apertus-8B-MeditronFO,max_model_len=4096 \
     --judge_model openai-chat --judge_model_args model=gpt-4o-mini,api_key_env=OPENAI_API_KEY \
     --task agentclinic --task_args num_scenarios=5,total_inferences=20
-
-# Both local: two vLLM *servers* (one per GPU, or one GPU with memory caps),
-# reached over their OpenAI-compatible endpoints on different ports.
-python -m PtitWrap.cli \
-    --model openai-chat --model_args model=EPFLiGHT/Apertus-8B-MeditronFO,base_url=http://localhost:8000/v1 \
-    --judge_model openai-chat --judge_model_args model=Qwen/Qwen2.5-7B-Instruct,base_url=http://localhost:8001/v1 \
-    --task agentclinic --task_args num_scenarios=5
 ```
 
-Note: two *in-process* `vllm` models in one process both target GPU 0. For two
-local models on two GPUs, run two vLLM servers (pinned via `CUDA_VISIBLE_DEVICES`)
-and reach them with the `openai-chat` backend, as in the second example.
+For two GPUs, pin each server with `cuda_visible_devices` in its args, e.g.
+`--model_args pretrained=...,port=8000,cuda_visible_devices=0` and
+`--judge_model_args pretrained=...,port=8001,cuda_visible_devices=1`
+(and raise `gpu_memory_utilization` since they no longer share a GPU).
+
+**Why `vllm-server` and not two in-process `vllm`?** Two in-process vLLM
+engines in one process both grab GPU 0. `vllm-server` launches each model as its
+own server subprocess (harness-managed lifecycle: started, health-checked, and
+killed on exit), so two models coexist — on one GPU via memory caps, or on two
+via `cuda_visible_devices`.
 
 `--model_args` / `--task_args` are `key=value,key=value` strings (types coerced
 automatically), exactly like lm-eval. Metrics print to stdout; `--output`
