@@ -1,0 +1,75 @@
+{
+  "task": "mediq",
+  "model": "VLLMLocalLM",
+  "model_args": "pretrained=EPFLiGHT/Apertus-8B-MeditronFO,max_model_len=4096",
+  "n": 3,
+  "metrics": {
+    "accuracy": 0.0,
+    "avg_turns": 5.0
+  },
+  "samples": [
+    {
+      "id": 0,
+      "correct": false,
+      "letter_choice": "B",
+      "answer_idx": "C",
+      "num_questions": 5,
+      "questions": [
+        "Does the patient have a history of recent urinary tract infection or sexually transmitted disease?",
+        "Does the patient have any known sexually transmitted infections or recent urinary tract infections?",
+        "Has the patient had any recent sexual contact or urinary symptoms that could be related to a sexually transmitted infection or urinary tract infection?",
+        "Has the patient experienced any recent urinary symptoms such as dysuria, frequency, urgency, or cloudy urine?",
+        "Has the patient ever been diagnosed with a sexually transmitted infection such as gonorrhea or chlamydia?"
+      ],
+      "answers": [
+        "The patient cannot answer this question, please do not ask this question again.",
+        "The patient cannot answer this question, please do not ask this question again.",
+        "The patient is a sexually active male.",
+        "The patient complains of fever, pain during urination, and inflammation and pain in the right knee.",
+        "The patient cannot answer this question, please do not ask this question again."
+      ]
+    },
+    {
+      "id": 1,
+      "correct": false,
+      "letter_choice": "B",
+      "answer_idx": "A",
+      "num_questions": 5,
+      "questions": [
+        "Does the child have any family history of gastrointestinal motility disorders or other recurrent vomiting syndromes?",
+        "Does the child have any episodes of abdominal pain that accompany the vomiting?",
+        "Does the child have any episodes of abdominal pain that occur only after eating?",
+        "Does the child have any episodes of vomiting that are precipitated by certain foods or food groups?",
+        "Has the child had any episodes of vomiting that occur after eating a specific food or meal?"
+      ],
+      "answers": [
+        "The patient cannot answer this question, please do not ask this question again.",
+        "The vomiting is accompanied by abdominal pain.",
+        "The patient does not have any episodes of abdominal pain that occur only after eating.",
+        "The patient cannot answer this question, please do not ask this question again.",
+        "The patient cannot answer this question, please do not ask this question again."
+      ]
+    },
+    {
+      "id": 2,
+      "correct": false,
+      "letter_choice": "C",
+      "answer_idx": "D",
+      "num_questions": 5,
+      "questions": [
+        "Has the patient experienced any mood changes such as persistent sadness, loss of interest, or feelings of hopelessness?",
+        "Has the patient experienced any recent stressful life events or a change in her daily routine that could be contributing to her insomnia and mood changes?",
+        "Does the patient have any past history of depression or anxiety disorders?",
+        "Does the patient have any other chronic medical conditions or allergies that could influence medication choice?",
+        "Has the patient experienced any recent changes in her sleep schedule or exposure to screens or caffeine that could be contributing to her insomnia?"
+      ],
+      "answers": [
+        "The patient reports feeling increasingly irritable and increasingly hopeless, indicating mood changes such as persistent sadness, loss of interest, and feelings of hopelessness.",
+        "The patient has not mentioned any recent stressful life events or changes in her daily routine.",
+        "The patient cannot answer this question, please do not ask this question again.",
+        "The patient cannot answer this question, please do not ask this question again.",
+        "The patient cannot answer this question, please do not ask this question again."
+      ]
+    }
+  ]
+}
