@@ -18,7 +18,7 @@ def inference_huggingface(prompt, pipe):
 
 
 def query_model(model_str, prompt, system_prompt, tries=30, timeout=20.0, image_requested=False, scene=None, max_prompt_len=2**14, clip_prompt=False):
-    if model_str not in ["gpt4", "gpt3.5", "gpt4o", 'llama-2-70b-chat', "mixtral-8x7b", "gpt-4o-mini", "llama-3-70b-instruct", "gpt4v", "claude3.5sonnet", "o1-preview"] and "_HF" not in model_str and "VLLM_" not in model_str:
+    if model_str not in ["gpt4", "gpt3.5", "gpt4o", 'llama-2-70b-chat', "mixtral-8x7b", "gpt-4o-mini", "llama-3-70b-instruct", "gpt4v", "claude3.5sonnet", "o1-preview"] and "_HF" not in model_str:
         raise Exception("No model by the name {}".format(model_str))
     for _ in range(tries):
         if clip_prompt: prompt = prompt[:max_prompt_len]
@@ -170,33 +170,6 @@ def query_model(model_str, prompt, system_prompt, tries=30, timeout=20.0, image_
                 #if self.pipe is None:
                 #    self.pipe = load_huggingface_model(self.backend.replace("HF_", ""))
                 raise Exception("Sorry, fixing TODO :3") #inference_huggingface(input_text, self.pipe)
-            # Added local vLLM support — the original HF_ path in this file is broken
-            # (raises NotImplementedError-style exception). This VLLM_ branch reuses
-            # the OpenAI SDK already imported in this file, pointed at a local vLLM
-            # server exposing an OpenAI-compatible endpoint, since vLLM was not
-            # natively supported in the public repo at time of use.
-            elif "VLLM_" in model_str:
-                # Optional "VLLM_<port>:<model>" form lets different VLLM_
-                # models be routed to different local vLLM servers (e.g. one
-                # port per model, to keep the judge off the model under test).
-                # Plain "VLLM_<model>" (no port) still defaults to 8000,
-                # unchanged from before.
-                vllm_spec = model_str.replace("VLLM_", "", 1)
-                if ":" in vllm_spec and vllm_spec.split(":", 1)[0].isdigit():
-                    vllm_port, vllm_model_name = vllm_spec.split(":", 1)
-                else:
-                    vllm_port, vllm_model_name = "8000", vllm_spec
-                client = openai.OpenAI(base_url=f"http://localhost:{vllm_port}/v1", api_key="none")
-                messages = [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}]
-                response = client.chat.completions.create(
-                        model=vllm_model_name,
-                        messages=messages,
-                        temperature=0.05,
-                        max_tokens=200,
-                    )
-                answer = response.choices[0].message.content
             return answer
         
         except Exception as e:
