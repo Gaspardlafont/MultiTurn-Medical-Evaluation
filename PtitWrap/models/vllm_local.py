@@ -27,7 +27,7 @@ class VLLMLocalLM(LM):
         max_model_len: int | None = None,
         tensor_parallel_size: int = 1,
         temperature: float = 0.6,
-        max_tokens: int = 512,
+        max_tokens: int = 256,
         top_p: float = 0.9,
         **kwargs,
     ) -> None:
