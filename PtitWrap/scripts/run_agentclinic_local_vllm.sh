@@ -27,6 +27,11 @@ PORT="${PORT:-8000}"
 JUDGE_MODEL="${JUDGE_MODEL:-Qwen/Qwen2.5-7B-Instruct}"
 JUDGE_PORT="${JUDGE_PORT:-8001}"
 GPU_MEM_UTIL="${GPU_MEM_UTIL:-0.45}"
+# AgentClinic's dialogue is short (1-3 sentences per turn), so the model's
+# default max context (32k-65k) massively over-reserves KV cache memory when
+# two servers share one GPU. Capping it here is what actually fixes the
+# "No available memory for the cache blocks" OOM when running two servers.
+MAX_MODEL_LEN="${MAX_MODEL_LEN:-4096}"
 DATASET="${DATASET:-MedQA}"
 NUM_SCENARIOS="${NUM_SCENARIOS:-1}"
 TOTAL_INFERENCES="${TOTAL_INFERENCES:-5}"
@@ -46,6 +51,7 @@ echo "[3/5] Starting vLLM server for doctor model $MODEL on port $PORT (log: $DO
 python -m vllm.entrypoints.openai.api_server \
     --model "$MODEL" --port "$PORT" \
     --gpu-memory-utilization "$GPU_MEM_UTIL" \
+    --max-model-len "$MAX_MODEL_LEN" \
     > "$DOCTOR_LOG" 2>&1 &
 DOCTOR_PID=$!
 
@@ -53,6 +59,7 @@ echo "Starting vLLM server for judge model $JUDGE_MODEL on port $JUDGE_PORT (log
 python -m vllm.entrypoints.openai.api_server \
     --model "$JUDGE_MODEL" --port "$JUDGE_PORT" \
     --gpu-memory-utilization "$GPU_MEM_UTIL" \
+    --max-model-len "$MAX_MODEL_LEN" \
     > "$JUDGE_LOG" 2>&1 &
 JUDGE_PID=$!
 
