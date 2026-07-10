@@ -32,7 +32,7 @@ class OpenAIChatLM(LM):
         api_key: str | None = None,
         api_key_env: str | None = None,
         temperature: float = 0.6,
-        max_tokens: int = 512,
+        max_tokens: int = 256,
         top_p: float = 0.9,
         max_retries: int = 5,
         timeout: float = 120.0,
@@ -67,7 +67,14 @@ class OpenAIChatLM(LM):
                     top_p=gen_kwargs.get("top_p", self.top_p),
                 )
                 return resp.choices[0].message.content or ""
-            except Exception as e:  # noqa: BLE001 - retry on any transient API error
+            except Exception as e:  # noqa: BLE001
+                # Don't retry deterministic client errors (e.g. 400 context
+                # length exceeded) — they fail identically every time, so a
+                # retry just delays the same failure. 429 (rate limit) is the
+                # one 4xx worth retrying.
+                status = getattr(e, "status_code", None)
+                if status is not None and 400 <= status < 500 and status != 429:
+                    raise
                 last_err = e
                 wait = 2**attempt
                 logger.warning(

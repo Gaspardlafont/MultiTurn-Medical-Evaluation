@@ -136,9 +136,12 @@ The harness core needs nothing heavy. Each path pulls its own:
 - Role separation is supported via `--judge_model` (see above). Without it, one
   model plays every role — fine for a quick smoke test, but the accuracy is not
   trustworthy (the model judges its own diagnosis).
-- **Role bleeding (open):** with no stop-sequence in AgentClinic's plain-text
-  loop, a rambling model can generate *both* the doctor's question and the
-  patient's reply in one turn. Exposing `max_tokens`/stop-sequences through the
-  backend would mitigate this — not yet done.
+- **Role bleeding (partly mitigated):** with no stop-sequence in AgentClinic's
+  plain-text loop, a rambling model can generate *both* the doctor's question
+  and the patient's reply in one turn — which also self-numbers questions wrong
+  and balloons the history until it overflows the context window. Lowering the
+  default `max_tokens` (now 256) shortens turns and helps; a proper fix would
+  add stop-sequences and/or truncate the running history. Set `max_tokens` /
+  `max_model_len` via `--model_args` if you still hit context-length errors.
 - AgentClinic image requests aren't forwarded to the model (upstream only
   wires images for OpenAI vision models); text-only for now.

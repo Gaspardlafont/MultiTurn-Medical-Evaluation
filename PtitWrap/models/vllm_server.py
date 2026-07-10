@@ -37,7 +37,7 @@ class VLLMServerLM(OpenAIChatLM):
         port: int = 8000,
         host: str = "127.0.0.1",
         gpu_memory_utilization: float = 0.45,
-        max_model_len: int = 4096,
+        max_model_len: int = 8192,
         dtype: str = "auto",
         cuda_visible_devices: str | int | None = None,
         startup_timeout: float = 600.0,
