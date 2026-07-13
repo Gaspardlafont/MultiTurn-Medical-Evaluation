@@ -51,6 +51,7 @@ MEDIQ_REPO_PATH = Path(__file__).resolve().parents[3] / "mediQ"
 sys.path.insert(0, str(MEDIQ_REPO_PATH / "src"))
 
 import expert as expert_module  # noqa: E402  # ty: ignore[unresolved-import]
+import expert_basics  # noqa: E402  # ty: ignore[unresolved-import]
 import helper  # noqa: E402  # ty: ignore[unresolved-import]
 import patient as patient_module  # noqa: E402  # ty: ignore[unresolved-import]
 
@@ -108,7 +109,14 @@ def _patched_get_response(messages, model_name, use_vllm=False, use_api=None, **
     return output.completion, None, num_tokens
 
 
+# Patching helper.get_response alone is not enough: expert_basics.py and
+# patient.py both did `from helper import get_response`, which copies the
+# reference into their own module namespace at import time. Reassigning
+# helper.get_response afterwards doesn't touch those already-bound names,
+# so each importing module needs the same patch applied directly.
 helper.get_response = _patched_get_response
+expert_basics.get_response = _patched_get_response
+patient_module.get_response = _patched_get_response
 
 
 def _make_args(max_questions: int, rationale_generation: bool, self_consistency: int) -> SimpleNamespace:
