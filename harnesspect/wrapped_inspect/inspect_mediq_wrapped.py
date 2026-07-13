@@ -1,31 +1,11 @@
 """
-Wraps MediQ's real code (stellalisy/mediQ, src/) instead of reimplementing
-its expert/patient logic. expert.BasicExpert and patient.InstructPatient are
-imported unmodified — every abstention decision, prompt template
-(prompts.py), and response parser (expert_basics.py) is their exact code.
-
-Unlike inspect_agentclinic_wrapped.py, this does NOT reconstruct prompts by
-hand. All of MediQ's model calls funnel through one function,
-helper.get_response(messages, model_name, ...) — so this file monkeypatches
-that single function to route through Inspect's get_model(...).generate()
-instead, then runs their real, unmodified Expert/Patient classes. Their
-calls are synchronous and nested several calls deep (Expert.respond() ->
-expert_functions.* -> expert_basics.* -> get_response()), so the whole
-per-sample loop runs in a worker thread (anyio.to_thread.run_sync) and each
-patched get_response() call bridges back to Inspect's async model via
-anyio.from_thread.run(). model_name is repurposed as the Inspect model_roles
-key ("expert" or "patient") rather than an actual model identifier.
-
-Scoring is exact letter match (state.metadata["letter_choice"] ==
-target) — this is MediQ's own evaluation method (mediQ_benchmark.py), not
-an LLM judge, so no model_graded_qa() needed here.
-
-Only BasicExpert (implicit abstention: one combined call that either asks a
-question or commits to a choice) is wired up in this first version. The
-other 5 Expert strategies (Fixed/Binary/Numerical/NumericalCutOff/Scale) use
-the same get_response() choke point, so adding them later is a matter of
-importing the class and passing expert_class=... — no new prompt-reverse-
-engineering needed.
+Wraps MediQ's real code (stellalisy/mediQ, src/) — Expert/Patient classes,
+prompts, and abstention/parsing logic unmodified. All of MediQ's model calls
+funnel through helper.get_response(), so this file monkeypatches that one
+function to route through Inspect's get_model() instead, running their real
+(synchronous) classes in a worker thread. Scoring is exact letter match
+(state.metadata["letter_choice"] == target), matching MediQ's own
+evaluation method — no LLM judge.
 
 Setup: clone github.com/stellalisy/mediQ as a sibling of this repo
 (../../mediQ) — see MEDIQ_REPO_PATH below.
@@ -33,8 +13,17 @@ Setup: clone github.com/stellalisy/mediQ as a sibling of this repo
 Run:
     inspect eval inspect_mediq_wrapped.py --model vllm/Qwen/Qwen2.5-7B-Instruct
 
-Add with -T name=value: dataset_path, limit, max_questions (default 10),
-rationale_generation (true/false), self_consistency (default 1).
+Add any of these with -T name=value:
+    dataset_path            jsonl path (default: mediQ/data/all_dev_good.jsonl)
+    limit                   max number of samples (default: 10)
+    max_questions           expert's question budget (default: 10)
+    expert_class            BasicExpert (default) / FixedExpert / BinaryExpert /
+                             NumericalExpert / NumericalCutOffExpert / ScaleExpert
+    abstain_threshold        only used by NumericalCutOffExpert/ScaleExpert
+                             (defaults: 0.8 / 4.0)
+    rationale_generation     true/false (default: false)
+    self_consistency         number of self-consistency samples (default: 1)
+
 Bind model_roles (expert/patient/grader) on the Task to split models per
 role, same as inspect_meditron_doctor.py.
 """
@@ -73,6 +62,15 @@ MEDIQ_DATASET_PATH = str(MEDIQ_REPO_PATH / "data" / "all_dev_good.jsonl")
 # patched below) — repurposed as the model_roles key instead.
 EXPERT_ROLE = "expert"
 PATIENT_ROLE = "patient"
+
+EXPERT_CLASSES = {
+    "BasicExpert": expert_module.BasicExpert,
+    "FixedExpert": expert_module.FixedExpert,
+    "BinaryExpert": expert_module.BinaryExpert,
+    "NumericalExpert": expert_module.NumericalExpert,
+    "NumericalCutOffExpert": expert_module.NumericalCutOffExpert,
+    "ScaleExpert": expert_module.ScaleExpert,
+}
 
 _local = threading.local()
 
@@ -119,7 +117,12 @@ expert_basics.get_response = _patched_get_response
 patient_module.get_response = _patched_get_response
 
 
-def _make_args(max_questions: int, rationale_generation: bool, self_consistency: int) -> SimpleNamespace:
+def _make_args(
+    max_questions: int,
+    rationale_generation: bool,
+    self_consistency: int,
+    abstain_threshold: float | None,
+) -> SimpleNamespace:
     return SimpleNamespace(
         expert_model=EXPERT_ROLE,
         expert_model_question_generator=EXPERT_ROLE,
@@ -127,7 +130,7 @@ def _make_args(max_questions: int, rationale_generation: bool, self_consistency:
         max_questions=max_questions,
         rationale_generation=rationale_generation,
         self_consistency=self_consistency,
-        abstain_threshold=None,
+        abstain_threshold=abstain_threshold,
         independent_modules=False,
         use_vllm=False,
         use_api=None,
@@ -148,13 +151,13 @@ def record_to_sample(record: dict) -> Sample:
 
 
 def _run_patient_interaction_sync(
-    args: SimpleNamespace, sample: dict
+    args: SimpleNamespace, sample: dict, expert_class: str
 ) -> tuple[str, list[tuple[str, str]]]:
     """Same control flow as mediQ_benchmark.run_patient_interaction(), calling
     their real, unmodified Expert/Patient classes throughout."""
     _local.transcript = []
 
-    expert_system = expert_module.BasicExpert(args, sample["question"], sample["options"])
+    expert_system = EXPERT_CLASSES[expert_class](args, sample["question"], sample["options"])
     patient_system = patient_module.InstructPatient(args, sample)
 
     while len(patient_system.get_questions()) < args.max_questions:
@@ -180,13 +183,18 @@ def mediq_wrapped_loop(
     max_questions: int = 10,
     rationale_generation: bool = False,
     self_consistency: int = 1,
+    expert_class: str = "BasicExpert",
+    abstain_threshold: float | None = None,
 ) -> Solver:
+    if expert_class not in EXPERT_CLASSES:
+        raise ValueError(f"Unknown expert_class {expert_class!r}; choose one of {sorted(EXPERT_CLASSES)}")
+
     async def solve(state: TaskState, generate: Generate) -> TaskState:
-        args = _make_args(max_questions, rationale_generation, self_consistency)
+        args = _make_args(max_questions, rationale_generation, self_consistency, abstain_threshold)
         sample = state.metadata["record"]
 
         letter_choice, transcript = await anyio.to_thread.run_sync(
-            _run_patient_interaction_sync, args, sample
+            _run_patient_interaction_sync, args, sample, expert_class
         )
 
         for role, text in transcript:
@@ -221,6 +229,8 @@ def mediq_wrapped(
     max_questions: int = 10,
     rationale_generation: bool = False,
     self_consistency: int = 1,
+    expert_class: str = "BasicExpert",
+    abstain_threshold: float | None = None,
 ) -> Task:
     return Task(
         dataset=json_dataset(dataset_path, sample_fields=record_to_sample, limit=limit),
@@ -228,6 +238,8 @@ def mediq_wrapped(
             max_questions=max_questions,
             rationale_generation=rationale_generation,
             self_consistency=self_consistency,
+            expert_class=expert_class,
+            abstain_threshold=abstain_threshold,
         ),
         scorer=mediq_exact_match(),
         # Bind e.g. model_roles={"expert": "...", "patient": "...",
