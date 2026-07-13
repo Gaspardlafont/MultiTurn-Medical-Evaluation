@@ -102,8 +102,8 @@ def main(argv: list[str] | None = None) -> None:
         from .writers import write_inspect_log
 
         os.makedirs(os.path.dirname(os.path.abspath(args.inspect_log)), exist_ok=True)
-        write_inspect_log(result, args.inspect_log)
-        print(f"Inspect log written to {args.inspect_log} (view with: inspect view --log-dir {os.path.dirname(os.path.abspath(args.inspect_log))})")
+        written = write_inspect_log(result, args.inspect_log)
+        print(f"Inspect log written to {written} (view with: inspect view --log-dir {os.path.dirname(os.path.abspath(written))})")
 
 
 if __name__ == "__main__":

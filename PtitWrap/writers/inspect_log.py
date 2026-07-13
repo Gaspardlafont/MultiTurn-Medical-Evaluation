@@ -78,8 +78,16 @@ def _sample_to_eval_sample(sample: dict, index: int):
     )
 
 
-def write_inspect_log(result: EvalResult, path: str) -> None:
-    """Convert ``result`` to an Inspect ``.eval`` log and write it to ``path``."""
+def write_inspect_log(result: EvalResult, path: str) -> str:
+    """Convert ``result`` to an Inspect log and write it, returning the path.
+
+    Written in Inspect's **JSON** log format (not the binary ``.eval`` zip):
+    recent inspect_ai writes ``.eval`` zips with ZSTD compression that the
+    bundled ``inspect view`` web viewer can't decode ("Unsupported
+    compressionMethod"). The uncompressed JSON format is viewer-readable and
+    immune to that writer/viewer compression mismatch. A ``.eval`` extension is
+    rewritten to ``.json`` accordingly.
+    """
     from inspect_ai.log import (
         EvalConfig,
         EvalDataset,
@@ -118,4 +126,10 @@ def write_inspect_log(result: EvalResult, path: str) -> None:
     )
 
     log = EvalLog(eval=spec, samples=samples, results=eval_results, status="success")
-    write_eval_log(log, path)
+
+    # Force JSON format (see docstring); rewrite a .eval extension to .json so
+    # the extension matches the actual content.
+    if path.endswith(".eval"):
+        path = path[: -len(".eval")] + ".json"
+    write_eval_log(log, path, format="json")
+    return path
