@@ -53,6 +53,9 @@ def build_parser() -> argparse.ArgumentParser:
                    help="Comma-separated key=value args for the task.")
     p.add_argument("--output", default=None,
                    help="Optional path to write the full results JSON.")
+    p.add_argument("--inspect_log", default=None,
+                   help="Optional path to also write an Inspect AI .eval log "
+                        "(view with `inspect view`). Independent of --output.")
     return p
 
 
@@ -93,6 +96,14 @@ def main(argv: list[str] | None = None) -> None:
         with open(args.output, "w") as f:
             json.dump(payload, f, indent=2)
         print(f"\nFull results written to {args.output}")
+
+    # Independent, additive: also emit an Inspect .eval log if requested.
+    if args.inspect_log:
+        from .writers import write_inspect_log
+
+        os.makedirs(os.path.dirname(os.path.abspath(args.inspect_log)), exist_ok=True)
+        write_inspect_log(result, args.inspect_log)
+        print(f"Inspect log written to {args.inspect_log} (view with: inspect view --log-dir {os.path.dirname(os.path.abspath(args.inspect_log))})")
 
 
 if __name__ == "__main__":
