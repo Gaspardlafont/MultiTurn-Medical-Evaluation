@@ -19,3 +19,6 @@ env/
 # Secrets
 .env
 *.env
+
+# Inspect AI eval logs/transcripts
+logs/
