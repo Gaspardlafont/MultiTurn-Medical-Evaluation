@@ -1,8 +1,10 @@
 """Write an EvalResult as an Inspect AI ``.eval`` log, viewable with ``inspect view``.
 
 Purely additive: this converts our neutral ``EvalResult`` (Part 2 schema) into
-Inspect's ``EvalLog`` structure and writes it. It does not replace the plain
-JSON output — both are produced independently.
+Inspect's ``EvalLog`` structure and writes it as a DEFLATE-compressed ``.eval``
+(see ``_recompress_eval_as_deflate`` for why not the default ZSTD, and why not
+the JSON format). It does not replace the plain JSON output — both are produced
+independently.
 
 ``inspect_ai`` is imported lazily inside ``write_inspect_log`` so the harness
 never requires it unless this format is actually requested.
@@ -17,6 +19,7 @@ sample metadata, so nothing is lost.
 from __future__ import annotations
 
 import datetime
+import os
 
 from ..schema import EvalResult
 
@@ -78,15 +81,35 @@ def _sample_to_eval_sample(sample: dict, index: int):
     )
 
 
-def write_inspect_log(result: EvalResult, path: str) -> str:
-    """Convert ``result`` to an Inspect log and write it, returning the path.
+def _recompress_eval_as_deflate(path: str) -> None:
+    """Rewrite an ``.eval`` zip so every entry uses DEFLATE instead of ZSTD.
 
-    Written in Inspect's **JSON** log format (not the binary ``.eval`` zip):
-    recent inspect_ai writes ``.eval`` zips with ZSTD compression that the
-    bundled ``inspect view`` web viewer can't decode ("Unsupported
-    compressionMethod"). The uncompressed JSON format is viewer-readable and
-    immune to that writer/viewer compression mismatch. A ``.eval`` extension is
-    rewritten to ``.json`` accordingly.
+    Recent inspect_ai writes ``.eval`` zips with ZSTD compression, which older
+    ``inspect view`` viewers can't decode ("Unsupported compressionMethod for
+    file header.json"). We can't just switch to the JSON log format because the
+    viewer's directory scanner (``list_eval_logs``) only lists ``.eval`` files.
+    So we keep the ``.eval`` container but recompress every entry with DEFLATE,
+    which every zip reader supports. Reading the ZSTD entries works because
+    importing ``inspect_ai`` monkey-patches ``zipfile`` with zstd support.
+    """
+    import zipfile
+
+    tmp = path + ".tmp"
+    with zipfile.ZipFile(path, "r") as src, zipfile.ZipFile(
+        tmp, "w", compression=zipfile.ZIP_DEFLATED
+    ) as dst:
+        for item in src.infolist():
+            dst.writestr(item.filename, src.read(item.filename))
+    os.replace(tmp, path)
+
+
+def write_inspect_log(result: EvalResult, path: str) -> str:
+    """Convert ``result`` to an Inspect ``.eval`` log and write it, returning the path.
+
+    The ``.eval`` container is what ``inspect view``'s directory scanner lists,
+    but its default ZSTD compression breaks older viewers — so we recompress it
+    to DEFLATE afterwards (see ``_recompress_eval_as_deflate``). A path without a
+    ``.eval`` extension gets one.
     """
     from inspect_ai.log import (
         EvalConfig,
@@ -127,9 +150,10 @@ def write_inspect_log(result: EvalResult, path: str) -> str:
 
     log = EvalLog(eval=spec, samples=samples, results=eval_results, status="success")
 
-    # Force JSON format (see docstring); rewrite a .eval extension to .json so
-    # the extension matches the actual content.
-    if path.endswith(".eval"):
-        path = path[: -len(".eval")] + ".json"
-    write_eval_log(log, path, format="json")
+    # Write the .eval container (what inspect view's scanner lists), then
+    # recompress it to DEFLATE so older viewers can decode it (see helper).
+    if not path.endswith(".eval"):
+        path = path + ".eval"
+    write_eval_log(log, path, format="eval")
+    _recompress_eval_as_deflate(path)
     return path
