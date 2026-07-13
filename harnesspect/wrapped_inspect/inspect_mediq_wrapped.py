@@ -14,18 +14,26 @@ Run:
     inspect eval inspect_mediq_wrapped.py --model vllm/Qwen/Qwen2.5-7B-Instruct
 
 Add any of these with -T name=value:
-    dataset_path            jsonl path (default: mediQ/data/all_dev_good.jsonl)
-    limit                   max number of samples (default: 10)
-    max_questions           expert's question budget (default: 10)
-    expert_class            BasicExpert (default) / FixedExpert / BinaryExpert /
-                             NumericalExpert / NumericalCutOffExpert / ScaleExpert
-    abstain_threshold        only used by NumericalCutOffExpert/ScaleExpert
-                             (defaults: 0.8 / 4.0)
-    rationale_generation     true/false (default: false)
-    self_consistency         number of self-consistency samples (default: 1)
+    dataset_path           jsonl path (default: mediQ/data/all_dev_good.jsonl)
+    limit                  max number of samples (default: 10)
+    max_questions          expert's question budget (default: 10)
+    expert_class           BasicExpert (default) / FixedExpert / BinaryExpert /
+                            NumericalExpert / NumericalCutOffExpert / ScaleExpert
+    abstain_threshold      only used by NumericalCutOffExpert/ScaleExpert
+                            (defaults: 0.8 / 4.0)
+    rationale_generation   true/false (default: false)
+    self_consistency       number of self-consistency samples (default: 1)
 
-Bind model_roles (expert/patient/grader) on the Task to split models per
-role, same as inspect_meditron_doctor.py.
+To pin the expert and patient to different models, use Inspect's
+--model-role flag (get_model(role=...) is already called with "expert" and
+"patient" as the role names) — no code change needed, e.g.:
+    inspect eval inspect_mediq_wrapped.py \\
+        --model vllm/Qwen/Qwen2.5-7B-Instruct \\
+        --model-role expert=vllm/EPFLiGHT/Apertus-8B-MeditronFO \\
+        --model-role patient=vllm/Qwen/Qwen2.5-7B-Instruct
+If both models run as local vLLM servers on one GPU, cap memory on each to
+avoid an OOM conflict, e.g. --model-role
+expert="{model: vllm/..., args: {gpu_memory_utilization: 0.45}}".
 """
 
 import sys
