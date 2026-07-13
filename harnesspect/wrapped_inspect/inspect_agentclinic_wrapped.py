@@ -27,11 +27,12 @@ import sys
 from pathlib import Path
 
 # Adjust to wherever your AgentClinic clone lives. Defaults to a sibling
-# of this repo (../../agentclinic), matching the local dev layout.
-AGENTCLINIC_REPO_PATH = Path(__file__).resolve().parents[2] / "agentclinic"
+# of MultiTurn-Medical-Evaluation (.../LIGHT/agentclinic), matching the
+# local dev layout — this file lives two levels down, in harnesspect/wrapped_inspect/.
+AGENTCLINIC_REPO_PATH = Path(__file__).resolve().parents[3] / "agentclinic"
 sys.path.insert(0, str(AGENTCLINIC_REPO_PATH))
 
-from agentclinic import (  # noqa: E402 — must follow sys.path insert
+from agentclinic import (  # noqa: E402 — must follow sys.path insert  # ty: ignore[unresolved-import]
     DoctorAgent,
     MeasurementAgent,
     PatientAgent,
@@ -108,6 +109,9 @@ def agentclinic_wrapped_loop(
     doctor_image_request: bool = False,
 ) -> Solver:
     async def solve(state: TaskState, generate: Generate) -> TaskState:
+        if max_turns < 1:
+            raise ValueError("max_turns must be at least 1")
+
         dataset = state.metadata["dataset"]
         scenario_cls = DATASETS[dataset][0]
         scenario = scenario_cls(state.metadata["scenario_dict"])
@@ -218,7 +222,10 @@ def agentclinic_wrapped_loop(
                 state.messages.append(ChatMessageUser(content=pi_dialogue))
         else:
             # Turn budget exhausted without "DIAGNOSIS READY" — score
-            # whatever the doctor's last message was.
+            # whatever the doctor's last message was. output is guaranteed
+            # set here since max_turns >= 1 (checked above) means the loop
+            # body ran at least once.
+            assert output is not None
             state.output = output
 
         return state
