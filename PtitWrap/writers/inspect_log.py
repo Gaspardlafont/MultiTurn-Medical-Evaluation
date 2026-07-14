@@ -20,11 +20,19 @@ from __future__ import annotations
 
 import datetime
 import os
+from typing import TYPE_CHECKING, Any
 
 from ..schema import EvalResult
 
+# inspect_ai is imported lazily at runtime (see write_inspect_log's docstring);
+# these type-only imports let mypy check the annotations below without
+# actually requiring the package when this module is merely imported.
+if TYPE_CHECKING:
+    from inspect_ai.log import EvalSample
+    from inspect_ai.model import ChatMessage
 
-def _messages_from_sample(sample: dict):
+
+def _messages_from_sample(sample: dict[str, Any]) -> list[ChatMessage]:
     """Build an Inspect chat-message thread from one sample, for either benchmark.
 
     AgentClinic samples carry a ``transcript`` (list of {role, text}); MediQ
@@ -32,7 +40,7 @@ def _messages_from_sample(sample: dict):
     """
     from inspect_ai.model import ChatMessageAssistant, ChatMessageUser
 
-    messages = []
+    messages: list[ChatMessage] = []
     if "transcript" in sample:  # AgentClinic
         for turn in sample["transcript"]:
             role, text = turn.get("role", "doctor"), turn.get("text", "")
@@ -50,7 +58,7 @@ def _messages_from_sample(sample: dict):
     return messages
 
 
-def _sample_to_eval_sample(sample: dict, index: int):
+def _sample_to_eval_sample(sample: dict[str, Any], index: int) -> EvalSample:
     from inspect_ai.log import EvalSample
     from inspect_ai.scorer import Score
 

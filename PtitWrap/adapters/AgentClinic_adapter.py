@@ -18,6 +18,7 @@ from __future__ import annotations
 import os
 import sys
 import types
+from typing import Any
 
 from ..models.base import LM
 from ..schema import EvalResult
@@ -73,7 +74,7 @@ class AgentClinicTask(MultiTurnTask):
         total_inferences: int = 20,
         doctor_bias: str = "None",
         patient_bias: str = "None",
-        **kwargs,
+        **kwargs: Any,
     ) -> EvalResult:
         _ensure_importable("anthropic", "replicate")
 
@@ -89,7 +90,9 @@ class AgentClinicTask(MultiTurnTask):
         judge = judge_model or model
         role_to_lm = {"PRIMARY": model, "AUX": judge}
 
-        def patched_query_model(model_str, prompt, system_prompt, *args, **kw):
+        def patched_query_model(
+            model_str: str, prompt: str, system_prompt: str, *args: Any, **kw: Any
+        ) -> str:
             lm = role_to_lm.get(model_str, model)
             return lm.generate(prompt, system_prompt)
 
@@ -99,7 +102,7 @@ class AgentClinicTask(MultiTurnTask):
         # inference methods (each turn) and compare_results (the verdict). A new
         # scene record starts each time a DoctorAgent is constructed (once per
         # scenario in main()).
-        scenes: list[dict] = []
+        scenes: list[dict[str, Any]] = []
 
         orig_doctor_init = ac.DoctorAgent.__init__
         orig_doctor_inf = ac.DoctorAgent.inference_doctor
@@ -107,7 +110,9 @@ class AgentClinicTask(MultiTurnTask):
         orig_meas_inf = ac.MeasurementAgent.inference_measurement
         original_compare = ac.compare_results
 
-        def patched_doctor_init(self, scenario, *a, **kw):
+        def patched_doctor_init(
+            self: Any, scenario: Any, *a: Any, **kw: Any
+        ) -> None:
             orig_doctor_init(self, scenario, *a, **kw)
             scenes.append(
                 {
@@ -120,26 +125,33 @@ class AgentClinicTask(MultiTurnTask):
                 }
             )
 
-        def _record(role, text):
+        def _record(role: str, text: str) -> None:
             if scenes:
                 scenes[-1]["transcript"].append({"role": role, "text": text})
 
-        def patched_doctor_inf(self, question, image_requested=False):
+        def patched_doctor_inf(
+            self: Any, question: str, image_requested: bool = False
+        ) -> str:
             out = orig_doctor_inf(self, question, image_requested=image_requested)
             _record("doctor", out)
             return out
 
-        def patched_patient_inf(self, question):
+        def patched_patient_inf(self: Any, question: str) -> str:
             out = orig_patient_inf(self, question)
             _record("patient", out)
             return out
 
-        def patched_meas_inf(self, question):
+        def patched_meas_inf(self: Any, question: str) -> str:
             out = orig_meas_inf(self, question)
             _record("measurement", out)
             return out
 
-        def patched_compare(diagnosis, correct_diagnosis, moderator_llm, mod_pipe):
+        def patched_compare(
+            diagnosis: str,
+            correct_diagnosis: str,
+            moderator_llm: Any,
+            mod_pipe: Any,
+        ) -> str:
             verdict = original_compare(
                 diagnosis, correct_diagnosis, moderator_llm, mod_pipe
             )
@@ -192,7 +204,7 @@ class AgentClinicTask(MultiTurnTask):
             ac.compare_results = original_compare
 
         # Build per-sample records (mirrors MediQ's output shape).
-        samples = []
+        samples: list[dict[str, Any]] = []
         for sc in scenes:
             n_doctor_turns = sum(
                 1 for t in sc["transcript"] if t["role"] == "doctor"

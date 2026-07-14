@@ -20,6 +20,7 @@ import os
 import subprocess
 import sys
 import time
+from typing import Any
 
 from .base import register_model
 from .openai_chat import OpenAIChatLM
@@ -42,7 +43,7 @@ class VLLMServerLM(OpenAIChatLM):
         cuda_visible_devices: str | int | None = None,
         startup_timeout: float = 600.0,
         log_file: str | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         base_url = f"http://{host}:{port}/v1"
         log_file = log_file or f"/tmp/vllm_server_{port}.log"
@@ -104,7 +105,7 @@ class VLLMServerLM(OpenAIChatLM):
         if log is not None and not log.closed:
             log.close()
 
-    def __del__(self):
+    def __del__(self) -> None:
         # Best-effort cleanup; atexit is the primary guarantee.
         try:
             self.close()

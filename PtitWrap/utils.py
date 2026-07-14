@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+# The set of types a single arg-string value can coerce to.
+ArgValue = bool | int | float | str
 
-def handle_arg_string(arg: str):
+
+def handle_arg_string(arg: str) -> ArgValue:
     """Coerce a single CLI arg-string value to bool/int/float, else leave as str."""
     if arg.lower() == "true":
         return True
@@ -16,7 +19,7 @@ def handle_arg_string(arg: str):
     return arg
 
 
-def simple_parse_args_string(args_string: str) -> dict:
+def simple_parse_args_string(args_string: str) -> dict[str, ArgValue]:
     """Parse ``"key1=value1,key2=value2"`` into a dict, coercing simple types.
 
     Same contract as lm-eval-harness: this is how ``--model_args`` /
@@ -26,7 +29,7 @@ def simple_parse_args_string(args_string: str) -> dict:
     args_string = args_string.strip()
     if not args_string:
         return {}
-    args_dict = {}
+    args_dict: dict[str, ArgValue] = {}
     for arg in (a for a in args_string.split(",") if a):
         if "=" not in arg:
             raise ValueError(f"Expected 'key=value' in arg string, got: {arg!r}")

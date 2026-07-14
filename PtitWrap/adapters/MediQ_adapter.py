@@ -16,9 +16,10 @@ import logging
 import os
 import sys
 from types import SimpleNamespace
+from typing import Any
 
 from ..models.base import LM
-from ..schema import EvalResult
+from ..schema import EvalResult, Message
 from .base import MultiTurnTask, register_task
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -41,7 +42,7 @@ class MediQTask(MultiTurnTask):
         data_dir: str | None = None,
         max_questions: int = 10,
         limit: int | None = None,
-        **kwargs,
+        **kwargs: Any,
     ) -> EvalResult:
         if _MEDIQ_SRC not in sys.path:
             sys.path.insert(0, _MEDIQ_SRC)
@@ -61,8 +62,13 @@ class MediQTask(MultiTurnTask):
         role_to_lm = {"PRIMARY": model, "AUX": judge}
 
         # Returns MediQ's expected (response_text, logprobs, usage) triple.
-        def patched_get_response(messages, model_name="PRIMARY", use_vllm=False,
-                                 use_api=None, **kw):
+        def patched_get_response(
+            messages: list[Message],
+            model_name: str = "PRIMARY",
+            use_vllm: bool = False,
+            use_api: str | None = None,
+            **kw: Any,
+        ) -> tuple[str, None, dict[str, int]]:
             lm = role_to_lm.get(model_name, model)
             text = lm.chat(messages)
             usage = {"input_tokens": 0, "output_tokens": 0}
@@ -112,11 +118,13 @@ class MediQTask(MultiTurnTask):
 
         data_path = os.path.join(data_dir or _MEDIQ_DATA, dev_filename)
         with open(data_path) as f:
-            data = [json.loads(line) for line in f]
+            data: list[dict[str, Any]] = [json.loads(line) for line in f]
         if limit is not None:
             data = data[:limit]
 
-        samples, correct_flags, turn_counts = [], [], []
+        samples: list[dict[str, Any]] = []
+        correct_flags: list[bool] = []
+        turn_counts: list[int] = []
         for sample in data:
             (letter_choice, questions, answers, choice_list,
              _addl, info) = mq.run_patient_interaction(
