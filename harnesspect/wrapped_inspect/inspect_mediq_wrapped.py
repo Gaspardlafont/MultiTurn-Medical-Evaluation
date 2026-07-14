@@ -33,7 +33,7 @@ To pin the expert and patient to different models, use Inspect's
         --model-role patient=vllm/Qwen/Qwen2.5-7B-Instruct
 If both models run as local vLLM servers on one GPU, cap memory on each to
 avoid an OOM conflict, e.g. --model-role
-expert="{model: vllm/..., args: {gpu_memory_utilization: 0.45}}".
+expert="{model: vllm/..., model_args: {gpu_memory_utilization: 0.45}}".
 """
 
 import sys
@@ -250,8 +250,6 @@ def mediq_wrapped(
             abstain_threshold=abstain_threshold,
         ),
         scorer=mediq_exact_match(),
-        # Bind e.g. model_roles={"expert": "...", "patient": "...",
-        # "grader": "..."} on the Task to split models per role, same as
-        # inspect_meditron_doctor.py. Left unbound here — every role falls
-        # back to the run's --model.
+        # model_roles left unbound here — pass --model-role expert=... and
+        # --model-role patient=... on the CLI instead (see module docstring).
     )
