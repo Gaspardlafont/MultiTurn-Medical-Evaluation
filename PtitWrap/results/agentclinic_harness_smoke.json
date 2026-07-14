@@ -1,0 +1,20 @@
+{
+  "task": "agentclinic",
+  "model": "VLLMLocalLM",
+  "model_args": "pretrained=EPFLiGHT/Apertus-8B-MeditronFO,max_model_len=4096",
+  "n": 2,
+  "metrics": {
+    "accuracy": 1.0,
+    "accuracy_over_reached": 1.0,
+    "n_reached_diagnosis": 2,
+    "num_scenarios": 2
+  },
+  "samples": [
+    {
+      "reached_diagnosis": true
+    },
+    {
+      "reached_diagnosis": true
+    }
+  ]
+}

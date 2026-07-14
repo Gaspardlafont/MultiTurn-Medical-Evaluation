@@ -1,16 +1,21 @@
-# Dataset files — transferred separately (e.g. kubectl cp), not versioned here
-*.jsonl
-*.csv
-*.parquet
-
-# Inspect eval logs/transcripts (generated output, not source)
-logs/
+# macOS
+.DS_Store
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Virtual environments
 .venv/
 venv/
+env/
 
-# OS
-.DS_Store
+# Editor/IDE
+.vscode/
+.idea/
+
+# Secrets
+.env
+*.env
