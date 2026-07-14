@@ -20,6 +20,8 @@ Add any of these with -T name=value:
     max_questions          expert's question budget (default: 10)
     expert_class           BasicExpert (default) / FixedExpert / BinaryExpert /
                             NumericalExpert / NumericalCutOffExpert / ScaleExpert
+    patient_class          InstructPatient (default) / RandomPatient / DirectPatient /
+                            FactSelectPatient
     abstain_threshold      only used by NumericalCutOffExpert/ScaleExpert
                             (defaults: 0.8 / 4.0)
     rationale_generation   true/false (default: false)
@@ -80,6 +82,13 @@ EXPERT_CLASSES = {
     "NumericalExpert": expert_module.NumericalExpert,
     "NumericalCutOffExpert": expert_module.NumericalCutOffExpert,
     "ScaleExpert": expert_module.ScaleExpert,
+}
+
+PATIENT_CLASSES = {
+    "RandomPatient": patient_module.RandomPatient,
+    "DirectPatient": patient_module.DirectPatient,
+    "InstructPatient": patient_module.InstructPatient,
+    "FactSelectPatient": patient_module.FactSelectPatient,
 }
 
 _local = threading.local()
@@ -161,7 +170,7 @@ def record_to_sample(record: dict) -> Sample:
 
 
 def _run_patient_interaction_sync(
-    args: SimpleNamespace, sample: dict, expert_class: str
+    args: SimpleNamespace, sample: dict, expert_class: str, patient_class: str
 ) -> tuple[str, list[tuple[str, str]]]:
     """Calls mediQ_benchmark.run_patient_interaction() directly"""
     _local.transcript = []
@@ -170,7 +179,7 @@ def _run_patient_interaction_sync(
     mediQ_benchmark.detail_logger = None
 
     letter_choice, *_ = mediQ_benchmark.run_patient_interaction(
-        EXPERT_CLASSES[expert_class], patient_module.InstructPatient, sample
+        EXPERT_CLASSES[expert_class], PATIENT_CLASSES[patient_class], sample
     )
     return letter_choice, _local.transcript
 
@@ -181,17 +190,20 @@ def mediq_wrapped_loop(
     rationale_generation: bool = False,
     self_consistency: int = 1,
     expert_class: str = "BasicExpert",
+    patient_class: str = "InstructPatient",
     abstain_threshold: float | None = None,
 ) -> Solver:
     if expert_class not in EXPERT_CLASSES:
         raise ValueError(f"Unknown expert_class {expert_class!r}; choose one of {sorted(EXPERT_CLASSES)}")
+    if patient_class not in PATIENT_CLASSES:
+        raise ValueError(f"Unknown patient_class {patient_class!r}; choose one of {sorted(PATIENT_CLASSES)}")
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         args = _make_args(max_questions, rationale_generation, self_consistency, abstain_threshold)
         sample = state.metadata["record"]
 
         letter_choice, transcript = await anyio.to_thread.run_sync(
-            _run_patient_interaction_sync, args, sample, expert_class
+            _run_patient_interaction_sync, args, sample, expert_class, patient_class
         )
 
         for role, text in transcript:
@@ -227,6 +239,7 @@ def mediq_wrapped(
     rationale_generation: bool = False,
     self_consistency: int = 1,
     expert_class: str = "BasicExpert",
+    patient_class: str = "InstructPatient",
     abstain_threshold: float | None = None,
 ) -> Task:
     return Task(
@@ -236,6 +249,7 @@ def mediq_wrapped(
             rationale_generation=rationale_generation,
             self_consistency=self_consistency,
             expert_class=expert_class,
+            patient_class=patient_class,
             abstain_threshold=abstain_threshold,
         ),
         scorer=mediq_exact_match(),
