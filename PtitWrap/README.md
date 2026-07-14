@@ -110,14 +110,58 @@ via `cuda_visible_devices`.
 automatically), exactly like lm-eval. Metrics print to stdout; `--output`
 writes the full per-sample JSON.
 
+### Config files (`--config`)
+
+Any run above can be written once as a YAML file instead of retyped on the
+command line every time — useful for anything you'll run more than once, or
+want to hand to someone else without them re-assembling the flags. See
+[`PtitWrap/configs/`](configs/) for ready-to-use examples:
+
+```bash
+python -m PtitWrap.cli --config PtitWrap/configs/agentclinic_meditron_vs_qwen.yaml
+```
+
+A config file mirrors the CLI flags — `model`, `model_args` (a mapping, not a
+string), `judge_model`, `judge_model_args`, `task`, `task_args`, `output`,
+`inspect_log`:
+
+```yaml
+model: vllm-server
+model_args:
+  pretrained: EPFLiGHT/Apertus-8B-MeditronFO
+  port: 8000
+judge_model: vllm-server
+judge_model_args:
+  pretrained: Qwen/Qwen2.5-7B-Instruct
+  port: 8001
+task: agentclinic
+task_args:
+  num_scenarios: 10
+  total_inferences: 20
+output: PtitWrap/results/run.json
+inspect_log: PtitWrap/results/inspect/run.eval
+```
+
+**Any CLI flag overrides the matching config key** (config sets the defaults
+for an experiment, a flag tweaks it ad hoc for one run) — e.g. this reuses the
+config above but scales up to 50 scenarios without editing the file:
+```bash
+python -m PtitWrap.cli --config PtitWrap/configs/agentclinic_meditron_vs_qwen.yaml \
+    --task_args num_scenarios=50
+```
+`pip install pyyaml` (imported lazily, only needed when `--config` is used).
+
 ## Layout
 
 ```
 PtitWrap/
-  models/      LM base + registry (base.py), openai_chat.py, vllm_local.py
+  models/      LM base + registry (base.py), openai_chat.py, vllm_local.py, vllm_server.py
   adapters/    MultiTurnTask base + registry (base.py), MediQ_adapter.py, AgentClinic_adapter.py
+  writers/     output formats beyond plain JSON (inspect_log.py)
+  configs/     example --config YAML files
   schema.py    Message type, EvalResult
   utils.py     simple_parse_args_string
+  config.py    --config YAML loading
   cli.py       entry point (python -m PtitWrap.cli)
   external/    vendored upstream benchmarks (mediQ, AgentClinic) — kept pristine
 ```
@@ -130,6 +174,8 @@ The harness core needs nothing heavy. Each path pulls its own:
 - `mediq` task → the MediQ src deps (`torch`, `transformers`, …)
 - `agentclinic` task → `transformers`; `anthropic`/`replicate` are optional
   (auto-stubbed if absent, since we never call those provider branches).
+- `--config` → `pip install pyyaml`
+- `--inspect_log` → `pip install inspect_ai`
 
 ## Status / limitations
 
