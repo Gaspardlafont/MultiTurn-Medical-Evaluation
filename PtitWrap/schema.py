@@ -29,9 +29,9 @@ class EvalResult:
     model_args: str
     n: int
     metrics: dict[str, Any] = field(default_factory=dict)
-    samples: list[dict] = field(default_factory=list)
+    samples: list[dict[str, Any]] = field(default_factory=list)
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "task": self.task,
             "model": self.model,

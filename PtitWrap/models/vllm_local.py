@@ -11,6 +11,8 @@ harness package imports fine on a machine without them.
 
 from __future__ import annotations
 
+from typing import Any
+
 from ..schema import Message
 from .base import LM, register_model
 
@@ -29,7 +31,7 @@ class VLLMLocalLM(LM):
         temperature: float = 0.6,
         max_tokens: int = 256,
         top_p: float = 0.9,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         from transformers import AutoTokenizer
         from vllm import LLM, SamplingParams
@@ -51,7 +53,7 @@ class VLLMLocalLM(LM):
         self.max_tokens = int(max_tokens)
         self.top_p = float(top_p)
 
-    def chat(self, messages: list[Message], **gen_kwargs) -> str:
+    def chat(self, messages: list[Message], **gen_kwargs: Any) -> str:
         prompt = self.tokenizer.apply_chat_template(
             messages, add_generation_prompt=True, tokenize=False
         )

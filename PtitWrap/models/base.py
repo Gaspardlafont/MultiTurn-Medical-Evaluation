@@ -15,7 +15,8 @@ is kept faithful to lm-eval so the CLI feels identical.
 from __future__ import annotations
 
 import abc
-from typing import TypeVar
+from collections.abc import Callable
+from typing import Any, TypeVar
 
 from ..schema import Message
 from ..utils import simple_parse_args_string
@@ -27,7 +28,7 @@ T = TypeVar("T", bound="LM")
 MODEL_REGISTRY: dict[str, type["LM"]] = {}
 
 
-def register_model(*names: str):
+def register_model(*names: str) -> Callable[[type["LM"]], type["LM"]]:
     """Class decorator registering an LM subclass under one or more names."""
 
     def decorate(cls: type["LM"]) -> type["LM"]:
@@ -54,7 +55,7 @@ class LM(abc.ABC):
     """Abstract base class for a chat model usable by any multi-turn task."""
 
     @abc.abstractmethod
-    def chat(self, messages: list[Message], **gen_kwargs) -> str:
+    def chat(self, messages: list[Message], **gen_kwargs: Any) -> str:
         """Return the assistant's reply to a list of chat messages.
 
         Args:
@@ -67,7 +68,7 @@ class LM(abc.ABC):
         ...
 
     def generate(
-        self, prompt: str, system_prompt: str | None = None, **gen_kwargs
+        self, prompt: str, system_prompt: str | None = None, **gen_kwargs: Any
     ) -> str:
         """Convenience wrapper for benchmarks that think in (system, user) pairs.
 
@@ -83,7 +84,7 @@ class LM(abc.ABC):
 
     @classmethod
     def create_from_arg_string(
-        cls: type[T], arg_string: str, additional_config: dict | None = None
+        cls: type[T], arg_string: str, additional_config: dict[str, Any] | None = None
     ) -> T:
         """Build an instance from a ``"key=value,key=value"`` CLI string."""
         args = simple_parse_args_string(arg_string)

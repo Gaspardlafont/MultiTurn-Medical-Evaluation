@@ -13,6 +13,8 @@ for all model calls — see the adapters for details.
 from __future__ import annotations
 
 import abc
+from collections.abc import Callable
+from typing import Any
 
 from ..models.base import LM
 from ..schema import EvalResult
@@ -21,7 +23,7 @@ from ..schema import EvalResult
 TASK_REGISTRY: dict[str, type["MultiTurnTask"]] = {}
 
 
-def register_task(*names: str):
+def register_task(*names: str) -> Callable[[type["MultiTurnTask"]], type["MultiTurnTask"]]:
     def decorate(cls: type["MultiTurnTask"]) -> type["MultiTurnTask"]:
         for name in names:
             if name in TASK_REGISTRY and TASK_REGISTRY[name] is not cls:
@@ -48,7 +50,9 @@ class MultiTurnTask(abc.ABC):
     name: str = "task"
 
     @abc.abstractmethod
-    def run(self, model: LM, judge_model: LM | None = None, **task_args) -> EvalResult:
+    def run(
+        self, model: LM, judge_model: LM | None = None, **task_args: Any
+    ) -> EvalResult:
         """Run the benchmark end-to-end.
 
         Args:

@@ -14,6 +14,7 @@ from __future__ import annotations
 import logging
 import os
 import time
+from typing import Any, cast
 
 from ..schema import Message
 from .base import LM, register_model
@@ -36,7 +37,7 @@ class OpenAIChatLM(LM):
         top_p: float = 0.9,
         max_retries: int = 5,
         timeout: float = 120.0,
-        **kwargs,
+        **kwargs: Any,
     ) -> None:
         import openai
 
@@ -55,13 +56,16 @@ class OpenAIChatLM(LM):
         self.top_p = float(top_p)
         self.max_retries = int(max_retries)
 
-    def chat(self, messages: list[Message], **gen_kwargs) -> str:
+    def chat(self, messages: list[Message], **gen_kwargs: Any) -> str:
         last_err: Exception | None = None
         for attempt in range(self.max_retries):
             try:
                 resp = self.client.chat.completions.create(
                     model=self.model,
-                    messages=messages,
+                    # Our Message = dict[str, str] is intentionally looser than
+                    # the SDK's per-role TypedDict union; these dicts match the
+                    # wire format exactly, so the cast is safe.
+                    messages=cast(Any, messages),
                     temperature=gen_kwargs.get("temperature", self.temperature),
                     max_tokens=gen_kwargs.get("max_tokens", self.max_tokens),
                     top_p=gen_kwargs.get("top_p", self.top_p),
