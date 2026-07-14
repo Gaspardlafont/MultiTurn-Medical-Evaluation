@@ -1,0 +1,20 @@
+# MediQ smoke test: a single local model (in-process vLLM, no server to
+# manage) plays both the doctor/expert and the patient. Good for a first
+# "does the pipeline work" check before a full run or before adding a
+# separate judge model.
+#
+# Run:
+#   python -m PtitWrap.cli --config PtitWrap/configs/mediq_smoke.yaml
+
+model: vllm
+model_args:
+  pretrained: EPFLiGHT/Apertus-8B-MeditronFO
+  max_model_len: 4096
+
+task: mediq
+task_args:
+  limit: 5
+  max_questions: 5
+
+output: PtitWrap/results/mediq_smoke.json
+inspect_log: PtitWrap/results/inspect/mediq_smoke.eval
