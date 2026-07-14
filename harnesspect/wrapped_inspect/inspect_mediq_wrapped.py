@@ -1,10 +1,11 @@
 """
 Wraps MediQ's real code (stellalisy/mediQ, src/) — Expert/Patient classes,
-prompts, and abstention/parsing logic unmodified. All of MediQ's model calls
-funnel through helper.get_response(), so this file monkeypatches that one
-function to route through Inspect's get_model() instead, running their real
-(synchronous) classes in a worker thread. Scoring is exact letter match
-(state.metadata["letter_choice"] == target), matching MediQ's own
+prompts, abstention/parsing logic, and even the turn-taking loop itself
+(mediQ_benchmark.run_patient_interaction()) are unmodified. All of MediQ's
+model calls funnel through helper.get_response(), so this file monkeypatches
+that one function to route through Inspect's get_model() instead, running
+their real (synchronous) code in a worker thread. Scoring is exact letter
+match (state.metadata["letter_choice"] == target), matching MediQ's own
 evaluation method — no LLM judge.
 
 Setup: clone github.com/stellalisy/mediQ as a sibling of this repo
@@ -50,6 +51,7 @@ sys.path.insert(0, str(MEDIQ_REPO_PATH / "src"))
 import expert as expert_module  # noqa: E402  # ty: ignore[unresolved-import]
 import expert_basics  # noqa: E402  # ty: ignore[unresolved-import]
 import helper  # noqa: E402  # ty: ignore[unresolved-import]
+import mediQ_benchmark  # noqa: E402  # ty: ignore[unresolved-import]
 import patient as patient_module  # noqa: E402  # ty: ignore[unresolved-import]
 
 from inspect_ai import Task, task
@@ -161,29 +163,16 @@ def record_to_sample(record: dict) -> Sample:
 def _run_patient_interaction_sync(
     args: SimpleNamespace, sample: dict, expert_class: str
 ) -> tuple[str, list[tuple[str, str]]]:
-    """Same control flow as mediQ_benchmark.run_patient_interaction(), calling
-    their real, unmodified Expert/Patient classes throughout."""
+    """Calls mediQ_benchmark.run_patient_interaction() directly"""
     _local.transcript = []
+    mediQ_benchmark.args = args
+    mediQ_benchmark.history_logger = None
+    mediQ_benchmark.detail_logger = None
 
-    expert_system = EXPERT_CLASSES[expert_class](args, sample["question"], sample["options"])
-    patient_system = patient_module.InstructPatient(args, sample)
-
-    while len(patient_system.get_questions()) < args.max_questions:
-        patient_state = patient_system.get_state()
-        response_dict = expert_system.respond(patient_state)
-
-        if response_dict["type"] == "question":
-            patient_system.respond(response_dict["question"])
-        elif response_dict["type"] == "choice":
-            return response_dict["letter_choice"], _local.transcript
-        else:
-            raise ValueError("Invalid response type from expert_system.")
-
-    # Turn budget exhausted without a choice — force a final answer, same as
-    # mediQ_benchmark.py.
-    patient_state = patient_system.get_state()
-    response_dict = expert_system.respond(patient_state)
-    return response_dict["letter_choice"], _local.transcript
+    letter_choice, *_ = mediQ_benchmark.run_patient_interaction(
+        EXPERT_CLASSES[expert_class], patient_module.InstructPatient, sample
+    )
+    return letter_choice, _local.transcript
 
 
 @solver
