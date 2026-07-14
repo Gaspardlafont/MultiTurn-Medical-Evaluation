@@ -15,7 +15,7 @@ repo (../../agentclinic) — see AGENTCLINIC_REPO_PATH below. MIMICIV needs
 credentialed PhysioNet access and isn't in the public repo.
 
 Run:
-    inspect eval inspect_agentclinic_wrapped.py --model vllm/Qwen/Qwen2.5-7B-Instruct
+    inspect eval wrapped_inspect/inspect_agentclinic_wrapped.py --model vllm/Qwen/Qwen2.5-7B-Instruct
 
 Add any of these with -T name=value:
     dataset                MedQA (default) / MedQA_Ext / MIMICIV / NEJM / NEJM_Ext
