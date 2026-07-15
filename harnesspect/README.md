@@ -43,51 +43,31 @@ The harness enables several research directions:
 
 ---
 
-## Inspect AI — Key Building Blocks
+## Running the Wrappers
 
-Candidate foundation for Stage 1. Quick reference for the pieces we'd actually use to implement the doctor/patient harness.
+Both wrappers live in `harnesspect/wrapped_inspect/`, run via Inspect's CLI. Full options are documented in each file's own docstring — the summary below just covers the base command.
 
-| Name | What it is | Why it matters here |
-|---|---|---|
-| `Task` | Bundles `dataset` + `solver` + `scorer` + `model` + limits into one runnable recipe (`@task` decorated function) | The top-level unit `eval()` runs — one `Task` per framework (MediQ, AgentClinic, ...) |
-| `Sample` / `Dataset` | One case (`input`, `target`, free-form `metadata`) / a list of them | How each framework's raw case files (jsonl, etc.) get loaded in |
-| `Solver` | `(TaskState, generate) -> TaskState`, chainable steps run in sequence for a sample | The classic building block; a whole doctor/patient loop can be written as one custom `@solver` |
-| `Agent` / `AgentState` | `(AgentState) -> AgentState` — narrower than `Solver` (just messages + output, no dataset/target coupling) | The right shape for a reusable "patient" or "doctor" participant, usable standalone, as a tool, or delegated to |
-| `@agent` / `@solver` / `@scorer` / `@task` | Decorators that register a factory function by name in a global registry | Lets components be referenced by name from the CLI/config instead of imported directly |
-| `react()` | Built-in ReAct agent: tool-use loop + a synthesized `submit` tool + retry/attempts + context overflow handling | Good ready-made scaffold for the **doctor** role — `submit` replaces AgentClinic's fragile `"DIAGNOSIS READY:"` string parsing |
-| `as_tool()` | Wraps an `Agent` as a `Tool` that sees only a single input string and returns the agent's last message | Right fit for the **patient**: it only answers the question it's given, never sees or drives the full conversation |
-| `handoff()` | Wraps an `Agent` so it gets full conversation visibility + can append messages / take control | **Not** the right fit for a passive patient — this is for delegating to an autonomous sub-agent (contrast with `as_tool()`) |
-| `run()` | Runs an `Agent` once given an input (string / messages / `AgentState`) | Needed if we hand-write the doctor↔patient turn-taking loop ourselves (no built-in "converse until X" helper exists) |
-| `Scorer` / `Score` / `Target` / `model_graded_qa()` | `(TaskState, Target) -> Score`; `model_graded_qa()` is a ready-made LLM-judge scorer | Covers AgentClinic-style binary LLM grading out of the box; ranked-list (MEDDxAgent-style) scoring still needs a custom `@scorer` |
-| `Tool` / `@tool` | Custom function exposed to a model as a callable tool | For a "measurement/exam" side-channel role, equivalent to AgentClinic's `MeasurementAgent` |
-| `turn_limit()` / `message_limit()` / `token_limit()` / `time_limit()` / `apply_limits()` | Native, **ambient/cooperative** limits — every `generate()` call in scope counts against them automatically | Replaces hand-rolled counters like AgentClinic's `self.infs`; works across a hand-written multi-agent loop too |
-| `eval()` + `.eval` log + Inspect view | Runner + structured log format + built-in web viewer | Full trace logging (system prompts, transcripts, metrics) for free — the biggest gap in all 4 upstream frameworks today |
+### MediQ
 
-**Caveat worth remembering**: `as_tool()` builds a *fresh* `AgentState` on every call — a patient exposed this way has no memory of earlier questions unless we manage its running history ourselves (closure-captured list, same trick AgentClinic uses with `self.agent_hist`).
+```
+inspect eval wrapped_inspect/inspect_mediq_wrapped.py --model vllm/Qwen/Qwen2.5-7B-Instruct
+```
 
----
+Requires `stellalisy/mediQ` cloned as a sibling of this repo (`../../mediQ`). Configurable via `-T name=value`: `dataset_path`, `limit`, `max_questions`, `expert_class`, `abstain_threshold`, `rationale_generation`, `self_consistency`.
 
-## Prototype — What We Tested for now
+### AgentClinic
 
-First hands-on pass at Inspect, run end-to-end on RCP (H100, models served locally via vLLM). Four example harness files, each isolating one design question:
+```
+inspect eval wrapped_inspect/inspect_agentclinic_wrapped.py --model vllm/Qwen/Qwen2.5-7B-Instruct
+```
 
-| File | Architecture | Dataset | Models |
-|---|---|---|---|
-| [`inspect_doctor_as_tool.py`](inspect_doctor_as_tool.py) | `react()` doctor with patient as `as_tool()` | 2 hardcoded toy cases | single model |
-| [`inspect_doctor_patient_loop.py`](inspect_doctor_patient_loop.py) | hand-written `while` loop, no tool-calling | 2 hardcoded toy cases | single model |
-| [`inspect_mediq_craftmd.py`](inspect_mediq_craftmd.py) | `react()` doctor with patient as `as_tool()` | real MediQ CRAFT-MD dataset (140 cases) | doctor/patient/grader on separate models via `model_roles` |
-| [`inspect_meditron_doctor.py`](inspect_meditron_doctor.py) | hand-written `while` loop, no tool-calling | real MediQ CRAFT-MD dataset | doctor/patient/grader on separate models via `model_roles` |
+Requires `SamuelSchmidgall/AgentClinic` cloned as a sibling of this repo (`../../agentclinic`). Configurable via `-T name=value`: `dataset`, `limit`, `max_turns`, `doctor_bias`, `patient_bias`, `doctor_image_request`.
 
-**What worked:**
-- The `react()` + `as_tool()` architecture works end-to-end with **Qwen2.5-7B-Instruct** as doctor (tool-calling functional via vLLM's `--enable-auto-tool-choice --tool-call-parser hermes`), scored with `model_graded_qa()`.
-- The hand-written loop architecture works with both Qwen2.5-7B-Instruct and **EPFLiGHT/Apertus-8B-MeditronFO** as doctor.
-- `Task.model_roles` cleanly separates doctor/patient/grader onto different models — avoids the self-grading confound (a model writing the answer and then judging it)
-- Remapped MediQ's CRAFT-MD dataset (`context` → patient's full record, `answer` → free-text target, dropped the QCM `options`) so it grades on open-ended diagnosis instead of multiple choice — same `Sample`/`model_graded_qa()` pipeline as the toy cases.
+### Both
 
-**What broke, and why (useful for Stage 2 planning):**
-- **Apertus-8B-MeditronFO does not support tool-calling** in vLLM — its `chat_template` errors out (`'dict object' has no attribute 'description'`) as soon as a non-empty `tools` list is in the request. This rules out the `react()`/`as_tool()` architecture for this model entirely; the hand-written loop (plain text, `"DIAGNOSIS READY:"` marker) is the only option we found for now
-- **Two vLLM servers sharing one GPU**: each defaults to reserving ~90% of GPU memory, so running doctor + patient as two different models on a single H100 needs each capped explicitly (`gpu_memory_utilization=0.45` each) or the second server fails to start.
-- **Doctor turn-budget awareness**: telling the doctor its question budget once, in the initial system prompt, isn't enough it frequently asked a new question right at the limit instead of diagnosing, partly because `turn_limit()` counts *both* agents' generations combined (not just the doctor's questions), making any static count wrong anyway. Tried to fix it by telling the doctor the questions remaining but didn't really work. We can find something better.
+- `--model` sets the fallback model for every role; pin specific roles to different models with `--model-role <role>=<model>` (e.g. `--model-role expert=vllm/EPFLiGHT/Apertus-8B-MeditronFO`).
+- Two local vLLM servers sharing one GPU need capped memory each, e.g. `--model-role expert="{model: vllm/..., model_args: {gpu_memory_utilization: 0.45}}"`, or the second server fails to start.
+- View results with `inspect view --log-dir logs`.
 
 ---
 
@@ -100,13 +80,3 @@ First hands-on pass at Inspect, run end-to-end on RCP (H100, models served local
 | Xavier Theimer-Lienhard | Co-supervisor (Research Engineer, LiGHT) |
 | Gaspard | Student |
 | Zacharie | Student |
-
----
-
-## Next Steps (before Monday)
-
-- **Gaspard & Zacharie**: investigate LM Harness and Inspect can they support multi-turn dialogue, hidden patient state, and full trace logging?
-- **Gaspard**: research existing multi-turn medical benchmarks (AgentClinic, MediQ, HealthBench) and identify common structures
-- **Gaspard**: search for multi-turn benchmarks in African/Indian languages
-- **Gaspard & Zacharie**: write a summary of findings and meet with Fabrice Monday morning to establish a coding plan
-
