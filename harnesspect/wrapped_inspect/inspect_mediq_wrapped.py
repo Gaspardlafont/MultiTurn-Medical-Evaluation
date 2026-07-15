@@ -26,6 +26,10 @@ Add any of these with -T name=value:
                             (defaults: 0.8 / 4.0)
     rationale_generation   true/false (default: false)
     self_consistency       number of self-consistency samples (default: 1)
+    temperature            sampling temperature (default: model's own default)
+    max_tokens             max tokens per generation (default: model's own default)
+    top_p                  nucleus sampling top_p (default: model's own default)
+    seed                   generation seed (default: none)
 
 To pin the expert and patient to different models, use Inspect's
 --model-role flag (get_model(role=...) is already called with "expert" and
@@ -63,6 +67,7 @@ from inspect_ai.model import (
     ChatMessageAssistant,
     ChatMessageSystem,
     ChatMessageUser,
+    GenerateConfig,
     get_model,
 )
 from inspect_ai.scorer import CORRECT, INCORRECT, Score, Target, accuracy, scorer, stderr
@@ -93,6 +98,13 @@ PATIENT_CLASSES = {
 
 _local = threading.local()
 
+# Generation config (temperature/max_tokens/top_p/seed), reassigned once per
+# solve() call (see mediq_wrapped_loop) — same "safe to share across
+# concurrent samples" reasoning as mediQ_benchmark.args below: identical
+# value for every sample in a run, so a race on the assignment itself is
+# harmless.
+_generate_config = GenerateConfig()
+
 
 def _to_inspect_messages(messages: list[dict]) -> list[ChatMessage]:
     out: list[ChatMessage] = []
@@ -107,7 +119,7 @@ def _to_inspect_messages(messages: list[dict]) -> list[ChatMessage]:
 
 
 async def _generate_via_inspect(role: str, messages: list[ChatMessage]):
-    return await get_model(role=role).generate(messages)
+    return await get_model(role=role).generate(messages, config=_generate_config)
 
 
 def _patched_get_response(messages, model_name, use_vllm=False, use_api=None, **kwargs):
@@ -141,7 +153,14 @@ def _make_args(
     rationale_generation: bool,
     self_consistency: int,
     abstain_threshold: float | None,
+    temperature: float | None,
+    max_tokens: int | None,
+    top_p: float | None,
 ) -> SimpleNamespace:
+    # temperature/max_tokens/top_p are also stored here so MediQ's own args
+    # namespace stays coherent (some Expert subclasses log/inspect it), but
+    # actual generation is governed by _generate_config below, not these —
+    # _patched_get_response ignores the kwargs MediQ forwards from here.
     return SimpleNamespace(
         expert_model=EXPERT_ROLE,
         expert_model_question_generator=EXPERT_ROLE,
@@ -153,9 +172,9 @@ def _make_args(
         independent_modules=False,
         use_vllm=False,
         use_api=None,
-        temperature=0.6,
-        max_tokens=256,
-        top_p=0.9,
+        temperature=temperature if temperature is not None else 0.6,
+        max_tokens=max_tokens if max_tokens is not None else 256,
+        top_p=top_p if top_p is not None else 0.9,
         top_logprobs=0,
         api_account="mediQ",
     )
@@ -192,6 +211,10 @@ def mediq_wrapped_loop(
     expert_class: str = "BasicExpert",
     patient_class: str = "InstructPatient",
     abstain_threshold: float | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    top_p: float | None = None,
+    seed: int | None = None,
 ) -> Solver:
     if expert_class not in EXPERT_CLASSES:
         raise ValueError(f"Unknown expert_class {expert_class!r}; choose one of {sorted(EXPERT_CLASSES)}")
@@ -199,7 +222,14 @@ def mediq_wrapped_loop(
         raise ValueError(f"Unknown patient_class {patient_class!r}; choose one of {sorted(PATIENT_CLASSES)}")
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
-        args = _make_args(max_questions, rationale_generation, self_consistency, abstain_threshold)
+        global _generate_config
+        _generate_config = GenerateConfig(
+            temperature=temperature, max_tokens=max_tokens, top_p=top_p, seed=seed
+        )
+        args = _make_args(
+            max_questions, rationale_generation, self_consistency, abstain_threshold,
+            temperature, max_tokens, top_p,
+        )
         sample = state.metadata["record"]
 
         letter_choice, transcript = await anyio.to_thread.run_sync(
@@ -241,6 +271,10 @@ def mediq_wrapped(
     expert_class: str = "BasicExpert",
     patient_class: str = "InstructPatient",
     abstain_threshold: float | None = None,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    top_p: float | None = None,
+    seed: int | None = None,
 ) -> Task:
     return Task(
         dataset=json_dataset(dataset_path, sample_fields=record_to_sample, limit=limit),
@@ -251,6 +285,10 @@ def mediq_wrapped(
             expert_class=expert_class,
             patient_class=patient_class,
             abstain_threshold=abstain_threshold,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            seed=seed,
         ),
         scorer=mediq_exact_match(),
         # model_roles left unbound here — pass --model-role expert=... and

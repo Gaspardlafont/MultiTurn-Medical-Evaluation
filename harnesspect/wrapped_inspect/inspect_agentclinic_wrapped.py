@@ -24,6 +24,10 @@ Add any of these with -T name=value:
     doctor_bias            one of DOCTOR_BIASES below (default: none)
     patient_bias           one of PATIENT_BIASES below (default: none)
     doctor_image_request   true/false — NEJM only (default: false)
+    temperature            sampling temperature (default: model's own default)
+    max_tokens             max tokens per generation (default: model's own default)
+    top_p                  nucleus sampling top_p (default: model's own default)
+    seed                   generation seed (default: none)
 
 To pin doctor/patient/measurement to different models, use Inspect's
 --model-role flag, e.g.:
@@ -67,6 +71,7 @@ from inspect_ai.model import (
     ChatMessageUser,
     ContentImage,
     ContentText,
+    GenerateConfig,
     ModelOutput,
     get_model,
 )
@@ -109,9 +114,14 @@ MEASUREMENT_ROLE = "measurement"
 
 _local = threading.local()
 
+# Generation config (temperature/max_tokens/top_p/seed), reassigned once per
+# solve() call (see agentclinic_wrapped_loop) — safe to share across
+# concurrent samples since it's identical for every sample in a run.
+_generate_config = GenerateConfig()
+
 
 async def _generate_via_inspect(role: str, messages: list[ChatMessage]) -> ModelOutput:
-    return await get_model(role=role).generate(messages)
+    return await get_model(role=role).generate(messages, config=_generate_config)
 
 
 def _patched_query_model(
@@ -236,11 +246,19 @@ def agentclinic_wrapped_loop(
     doctor_bias: str | None = None,
     patient_bias: str | None = None,
     doctor_image_request: bool = False,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    top_p: float | None = None,
+    seed: int | None = None,
 ) -> Solver:
     if max_turns < 1:
         raise ValueError("max_turns must be at least 1")
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
+        global _generate_config
+        _generate_config = GenerateConfig(
+            temperature=temperature, max_tokens=max_tokens, top_p=top_p, seed=seed
+        )
         dataset = state.metadata["dataset"]
         scenario_cls = DATASETS[dataset][0]
         scenario = scenario_cls(state.metadata["scenario_dict"])
@@ -276,6 +294,10 @@ def agentclinic_wrapped(
     doctor_bias: str | None = None,
     patient_bias: str | None = None,
     doctor_image_request: bool = False,
+    temperature: float | None = None,
+    max_tokens: int | None = None,
+    top_p: float | None = None,
+    seed: int | None = None,
 ) -> Task:
     if dataset not in DATASETS:
         raise ValueError(f"Unknown dataset {dataset!r}; choose one of {sorted(DATASETS)}")
@@ -294,6 +316,10 @@ def agentclinic_wrapped(
             doctor_bias=doctor_bias,
             patient_bias=patient_bias,
             doctor_image_request=doctor_image_request,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            top_p=top_p,
+            seed=seed,
         ),
         scorer=model_graded_qa(),
         # model_roles left unbound here — pass --model-role doctor=... /
