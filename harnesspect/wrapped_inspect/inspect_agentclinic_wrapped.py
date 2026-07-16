@@ -39,7 +39,9 @@ To pin doctor/patient/measurement to different models, use Inspect's
 
 import sys
 import threading
+from enum import Enum
 from pathlib import Path
+from typing import Any, NamedTuple
 
 import anyio.from_thread
 import anyio.to_thread
@@ -78,18 +80,24 @@ from inspect_ai.model import (
 from inspect_ai.scorer import model_graded_qa
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 
-# dataset name -> (Scenario class, jsonl filename, record shape).
-# "osce" records nest everything under an "OSCE_Examination" key (MedQA,
-# MedQA_Ext, MIMICIV, all structurally identical in agentclinic.py). "nejm"
-# records are flat, with the target buried in an answers[] list and an
-# image_url field (NEJM, NEJM_Ext).
-DATASETS = {
-    "MedQA": (ScenarioMedQA, "agentclinic_medqa.jsonl", "osce"),
-    "MedQA_Ext": (ScenarioMedQAExtended, "agentclinic_medqa_extended.jsonl", "osce"),
-    "MIMICIV": (ScenarioMIMICIVQA, "agentclinic_mimiciv.jsonl", "osce"),
-    "NEJM": (ScenarioNEJM, "agentclinic_nejm.jsonl", "nejm"),
-    "NEJM_Ext": (ScenarioNEJMExtended, "agentclinic_nejm_extended.jsonl", "nejm"),
-}
+class DatasetInfo(NamedTuple):
+    scenario_cls: type
+    jsonl_name: str
+    kind: str  # "osce" (MedQA/MedQA_Ext/MIMICIV) or "nejm" (NEJM/NEJM_Ext) — see record_to_sample
+
+
+class DatasetName(Enum):
+    """Registry of AgentClinic's datasets, keyed by name for -T dataset=...
+    "osce" records nest everything under an "OSCE_Examination" key (MedQA,
+    MedQA_Ext, MIMICIV, all structurally identical in agentclinic.py). "nejm"
+    records are flat, with the target buried in an answers[] list and an
+    image_url field (NEJM, NEJM_Ext)."""
+
+    MedQA = DatasetInfo(ScenarioMedQA, "agentclinic_medqa.jsonl", "osce")
+    MedQA_Ext = DatasetInfo(ScenarioMedQAExtended, "agentclinic_medqa_extended.jsonl", "osce")
+    MIMICIV = DatasetInfo(ScenarioMIMICIVQA, "agentclinic_mimiciv.jsonl", "osce")
+    NEJM = DatasetInfo(ScenarioNEJM, "agentclinic_nejm.jsonl", "nejm")
+    NEJM_Ext = DatasetInfo(ScenarioNEJMExtended, "agentclinic_nejm_extended.jsonl", "nejm")
 
 # Same choices as agentclinic.py's --doctor_bias/--patient_bias argparse
 # options — enforced there via argparse `choices`, enforced here only by
@@ -163,8 +171,10 @@ def _patched_query_model(
 agentclinic.query_model = _patched_query_model
 
 
-def record_to_sample(record: dict, dataset: str) -> Sample:
-    kind = DATASETS[dataset][2]
+def record_to_sample(record: dict[str, Any], dataset: str) -> Sample:
+    """Converts one AgentClinic dataset record into an Inspect Sample. Record
+    shape depends on dataset (see DatasetName: "osce" vs "nejm")."""
+    kind = DatasetName[dataset].value.kind
     if kind == "osce":
         osce = record["OSCE_Examination"]
         input_text = osce["Objective_for_Doctor"]
@@ -251,6 +261,9 @@ def agentclinic_wrapped_loop(
     top_p: float | None = None,
     seed: int | None = None,
 ) -> Solver:
+    """Solver that runs one AgentClinic scenario per sample, calling their real
+    DoctorAgent/PatientAgent/MeasurementAgent methods, and sets state.output
+    to the doctor's final turn for model_graded_qa() to grade."""
     if max_turns < 1:
         raise ValueError("max_turns must be at least 1")
 
@@ -260,7 +273,7 @@ def agentclinic_wrapped_loop(
             temperature=temperature, max_tokens=max_tokens, top_p=top_p, seed=seed
         )
         dataset = state.metadata["dataset"]
-        scenario_cls = DATASETS[dataset][0]
+        scenario_cls = DatasetName[dataset].value.scenario_cls
         scenario = scenario_cls(state.metadata["scenario_dict"])
 
         transcript, last_doctor_output = await anyio.to_thread.run_sync(
@@ -299,11 +312,12 @@ def agentclinic_wrapped(
     top_p: float | None = None,
     seed: int | None = None,
 ) -> Task:
-    if dataset not in DATASETS:
-        raise ValueError(f"Unknown dataset {dataset!r}; choose one of {sorted(DATASETS)}")
+    """Inspect Task wrapping AgentClinic's real Doctor/Patient/Measurement
+    classes end to end. See module docstring for -T arguments."""
+    if dataset not in DatasetName.__members__:
+        raise ValueError(f"Unknown dataset {dataset!r}; choose one of {sorted(DatasetName.__members__)}")
 
-    _, jsonl_name, _ = DATASETS[dataset]
-    dataset_path = str(AGENTCLINIC_REPO_PATH / jsonl_name)
+    dataset_path = str(AGENTCLINIC_REPO_PATH / DatasetName[dataset].value.jsonl_name)
 
     return Task(
         dataset=json_dataset(

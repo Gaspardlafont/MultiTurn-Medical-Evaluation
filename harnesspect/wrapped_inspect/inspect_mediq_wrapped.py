@@ -45,6 +45,7 @@ expert="{model: vllm/..., model_args: {gpu_memory_utilization: 0.45}}".
 
 import sys
 import threading
+from enum import Enum
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -81,21 +82,24 @@ MEDIQ_DATASET_PATH = str(MEDIQ_REPO_PATH / "data" / "all_dev_good.jsonl")
 EXPERT_ROLE = "expert"
 PATIENT_ROLE = "patient"
 
-EXPERT_CLASSES = {
-    "BasicExpert": expert_module.BasicExpert,
-    "FixedExpert": expert_module.FixedExpert,
-    "BinaryExpert": expert_module.BinaryExpert,
-    "NumericalExpert": expert_module.NumericalExpert,
-    "NumericalCutOffExpert": expert_module.NumericalCutOffExpert,
-    "ScaleExpert": expert_module.ScaleExpert,
-}
+class ExpertClassName(Enum):
+    """Registry of MediQ's Expert subclasses, keyed by name for -T expert_class=..."""
 
-PATIENT_CLASSES = {
-    "RandomPatient": patient_module.RandomPatient,
-    "DirectPatient": patient_module.DirectPatient,
-    "InstructPatient": patient_module.InstructPatient,
-    "FactSelectPatient": patient_module.FactSelectPatient,
-}
+    BasicExpert = expert_module.BasicExpert
+    FixedExpert = expert_module.FixedExpert
+    BinaryExpert = expert_module.BinaryExpert
+    NumericalExpert = expert_module.NumericalExpert
+    NumericalCutOffExpert = expert_module.NumericalCutOffExpert
+    ScaleExpert = expert_module.ScaleExpert
+
+
+class PatientClassName(Enum):
+    """Registry of MediQ's Patient subclasses, keyed by name for -T patient_class=..."""
+
+    RandomPatient = patient_module.RandomPatient
+    DirectPatient = patient_module.DirectPatient
+    InstructPatient = patient_module.InstructPatient
+    FactSelectPatient = patient_module.FactSelectPatient
 
 _local = threading.local()
 
@@ -181,7 +185,8 @@ def _make_args(
     )
 
 
-def record_to_sample(record: dict) -> Sample:
+def record_to_sample(record: dict[str, Any]) -> Sample:
+    """Converts one MediQ dataset record (all_dev_good.jsonl) into an Inspect Sample."""
     return Sample(
         input=record["question"],
         target=record["answer_idx"],
@@ -190,7 +195,7 @@ def record_to_sample(record: dict) -> Sample:
 
 
 def _run_patient_interaction_sync(
-    args: SimpleNamespace, sample: dict, expert_class: str, patient_class: str
+    args: SimpleNamespace, sample: dict[str, Any], expert_class: str, patient_class: str
 ) -> tuple[str, list[tuple[str, str]]]:
     """Calls mediQ_benchmark.run_patient_interaction() directly"""
     _local.transcript = []
@@ -199,7 +204,7 @@ def _run_patient_interaction_sync(
     mediQ_benchmark.detail_logger = None
 
     letter_choice, *_ = mediQ_benchmark.run_patient_interaction(
-        EXPERT_CLASSES[expert_class], PATIENT_CLASSES[patient_class], sample
+        ExpertClassName[expert_class].value, PatientClassName[patient_class].value, sample
     )
     return letter_choice, _local.transcript
 
@@ -217,10 +222,17 @@ def mediq_wrapped_loop(
     top_p: float | None = None,
     seed: int | None = None,
 ) -> Solver:
-    if expert_class not in EXPERT_CLASSES:
-        raise ValueError(f"Unknown expert_class {expert_class!r}; choose one of {sorted(EXPERT_CLASSES)}")
-    if patient_class not in PATIENT_CLASSES:
-        raise ValueError(f"Unknown patient_class {patient_class!r}; choose one of {sorted(PATIENT_CLASSES)}")
+    """Solver that runs one MediQ patient interaction per sample, calling their
+    real Expert/Patient classes, and stores the expert's final letter choice
+    in state.metadata["letter_choice"] for mediq_exact_match() to grade."""
+    if expert_class not in ExpertClassName.__members__:
+        raise ValueError(
+            f"Unknown expert_class {expert_class!r}; choose one of {sorted(ExpertClassName.__members__)}"
+        )
+    if patient_class not in PatientClassName.__members__:
+        raise ValueError(
+            f"Unknown patient_class {patient_class!r}; choose one of {sorted(PatientClassName.__members__)}"
+        )
 
     async def solve(state: TaskState, generate: Generate) -> TaskState:
         global _generate_config
@@ -251,9 +263,9 @@ def mediq_wrapped_loop(
 
 @scorer(metrics=[accuracy(), stderr()])
 def mediq_exact_match():
-    # MediQ's own evaluation (mediQ_benchmark.py): exact letter match, no
-    # LLM judge — reproduced faithfully rather than swapped for
-    # model_graded_qa() like the AgentClinic wrapper.
+    """Scorer: exact letter match against the target — MediQ's own evaluation
+    method (mediQ_benchmark.py), not an LLM judge."""
+
     async def score(state: TaskState, target: Target) -> Score:
         letter_choice = state.metadata.get("letter_choice")
         value = CORRECT if letter_choice == target.text else INCORRECT
@@ -277,6 +289,8 @@ def mediq_wrapped(
     top_p: float | None = None,
     seed: int | None = None,
 ) -> Task:
+    """Inspect Task wrapping MediQ's real Expert/Patient classes and
+    turn-taking loop end to end. See module docstring for -T arguments."""
     return Task(
         dataset=json_dataset(dataset_path, sample_fields=record_to_sample, limit=limit),
         solver=mediq_wrapped_loop(
@@ -292,6 +306,4 @@ def mediq_wrapped(
             seed=seed,
         ),
         scorer=mediq_exact_match(),
-        # model_roles left unbound here — pass --model-role expert=... and
-        # --model-role patient=... on the CLI instead (see module docstring).
     )
