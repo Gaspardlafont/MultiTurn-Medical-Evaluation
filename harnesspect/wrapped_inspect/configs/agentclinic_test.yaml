@@ -1,0 +1,38 @@
+# Test config for inspect_agentclinic_wrapped.py, using Inspect's native
+# --run-config (bundles task, model, model_roles, generate/eval config into
+# one file instead of a long CLI command).
+#
+# Run from harnesspect/:
+#   inspect eval --run-config wrapped_inspect/configs/agentclinic_test.yaml
+#
+# CLI flags override values from this file, e.g. to bump the sample count:
+#   inspect eval --run-config wrapped_inspect/configs/agentclinic_test.yaml -T limit=10
+
+task:
+  task: wrapped_inspect/inspect_agentclinic_wrapped.py
+  args:
+    dataset: MedQA
+    limit: 3
+    max_turns: 10
+
+model: vllm/Qwen/Qwen2.5-7B-Instruct
+
+# 8B/7B models fit on one GPU each — no tensor_parallel_size needed here.
+# For a bigger model spread across multiple GPUs (e.g. a 70B), add it under
+# that role's args, e.g.:
+#   doctor:
+#     model: vllm/EPFLiGHT/Apertus-70B-MeditronFO
+#     args:
+#       tensor_parallel_size: 8
+#       gpu_memory_utilization: 0.6
+
+model_roles:
+  doctor:
+    model: vllm/EPFLiGHT/Apertus-8B-MeditronFO
+    args:
+#     tensor_parallel_size: 8 # 8B/7B models fit on one GPU each — no tensor_parallel_size needed here. add this line if you wnat to use it with bigger models adapting with the number of gpus you have. 
+      gpu_memory_utilization: 0.45
+  patient:
+    model: vllm/Qwen/Qwen2.5-7B-Instruct
+    args:
+      gpu_memory_utilization: 0.45
