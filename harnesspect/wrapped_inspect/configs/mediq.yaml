@@ -3,10 +3,10 @@
 # one file instead of a long CLI command).
 #
 # Run from harnesspect/:
-#   inspect eval --run-config wrapped_inspect/configs/mediq_test.yaml
+#   inspect eval --run-config wrapped_inspect/configs/mediq.yaml
 #
 # CLI flags override values from this file, e.g. to bump the sample count:
-#   inspect eval --run-config wrapped_inspect/configs/mediq_test.yaml -T limit=10
+#   inspect eval --run-config wrapped_inspect/configs/mediq.yaml -T limit=10
 #
 # IMPORTANT: temperature/max_tokens/top_p/seed below are OUR wrapper's own
 # -T args (task.args), not Inspect's native top-level `generate_config:`
@@ -35,18 +35,20 @@ task:
     # top_p: 0.9                      # nucleus sampling top_p (default: model's own default)
     # seed: 42                        # generation seed (default: null = not set)
 
-# Fallback model for any role not pinned below.
+# Model(s). Two ways to configure — pick one:
+#
+# 1) SAME MODEL FOR EVERY ROLE (active by default below):
 model: vllm/Qwen/Qwen2.5-7B-Instruct
 
-# Per-role model overrides. Each role's `args` maps to vLLM server kwargs
-# (gpu_memory_utilization, tensor_parallel_size, etc.).
-model_roles:
-  expert:
-    model: vllm/EPFLiGHT/Apertus-8B-MeditronFO
-    args:
-      # tensor_parallel_size: 8  # uncomment + set to your GPU count for bigger models (e.g. a 70B) that need to be split across multiple GPUs — not needed for this 8B model
-      gpu_memory_utilization: 0.45
-  patient:
-    model: vllm/Qwen/Qwen2.5-7B-Instruct
-    args:
-      gpu_memory_utilization: 0.45
+# 2) DIFFERENT MODEL PER ROLE: uncomment model_roles below 
+
+# model_roles:
+#   expert:
+#     model: vllm/EPFLiGHT/Apertus-8B-MeditronFO
+#     args:
+#       # tensor_parallel_size: 8  # uncomment + set to your GPU count for bigger models (e.g. a 70B) that need to be split across multiple GPUs — not needed for this 8B model
+#       gpu_memory_utilization: 0.45
+#   patient:
+#     model: vllm/Qwen/Qwen2.5-7B-Instruct
+#     args:
+#       gpu_memory_utilization: 0.45
