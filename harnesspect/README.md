@@ -1,10 +1,6 @@
 # MultiTurn-Medical-Evaluation
 # Unified Multi-Turn Medical Agent Simulation Framework
 
-## Context
-
-This project is part of the **LiGHT lab at EPFL**, supervised by Yusuf Kesmen, Fabrice Nemo and Xavier Theimer-Lienhard.
-
 ## Problem Statement
 
 LLMs perform well on static medical benchmarks (MedQA, etc.) where the full case is given upfront. However, they degrade significantly in **interactive, multi-turn settings** recognizing missing information and actively seeking it over multiple turns which is what clinical reasoning under uncertainty actually requires.
@@ -53,7 +49,7 @@ Both wrappers live in `harnesspect/wrapped_inspect/`, run via Inspect's CLI. Ful
 inspect eval wrapped_inspect/inspect_mediq_wrapped.py --model vllm/Qwen/Qwen2.5-7B-Instruct
 ```
 
-Requires `stellalisy/mediQ` cloned as a sibling of this repo (`../../mediQ`). Configurable via `-T name=value`: `dataset_path`, `limit`, `max_questions`, `expert_class`, `abstain_threshold`, `rationale_generation`, `self_consistency`.
+Requires `stellalisy/mediQ` cloned as a sibling of this repo (`../../mediQ`). Configurable via `-T name=value`: `dataset_path`, `limit`, `max_questions`, `expert_class`, `patient_class`, `abstain_threshold`, `rationale_generation`, `self_consistency`, `temperature`, `max_tokens`, `top_p`, `seed`.
 
 ### AgentClinic
 
@@ -61,13 +57,29 @@ Requires `stellalisy/mediQ` cloned as a sibling of this repo (`../../mediQ`). Co
 inspect eval wrapped_inspect/inspect_agentclinic_wrapped.py --model vllm/Qwen/Qwen2.5-7B-Instruct
 ```
 
-Requires `SamuelSchmidgall/AgentClinic` cloned as a sibling of this repo (`../../agentclinic`). Configurable via `-T name=value`: `dataset`, `limit`, `max_turns`, `doctor_bias`, `patient_bias`, `doctor_image_request`.
+Requires `SamuelSchmidgall/AgentClinic` cloned as a sibling of this repo (`../../agentclinic`). Configurable via `-T name=value`: `dataset`, `limit`, `max_turns`, `doctor_bias`, `patient_bias`, `doctor_image_request`, `temperature`, `max_tokens`, `top_p`, `seed`.
 
 ### Both
 
 - `--model` sets the fallback model for every role; pin specific roles to different models with `--model-role <role>=<model>` (e.g. `--model-role expert=vllm/EPFLiGHT/Apertus-8B-MeditronFO`).
 - Two local vLLM servers sharing one GPU need capped memory each, e.g. `--model-role expert="{model: vllm/..., model_args: {gpu_memory_utilization: 0.45}}"`, or the second server fails to start.
 - View results with `inspect view --log-dir logs`.
+
+### Run configs
+
+Instead of a long CLI command, bundle everything (task args, model, model roles) into one YAML file with Inspect's native `--run-config`:
+
+```
+inspect eval --run-config wrapped_inspect/configs/mediq.yaml
+inspect eval --run-config wrapped_inspect/configs/agentclinic.yaml
+```
+
+Each file lists every available parameter as a commented-out line (with its default and valid options) — uncomment and edit any line to override it. CLI flags still override the file if passed alongside (`inspect eval --run-config ... -T limit=10`). See `wrapped_inspect/configs/` for the templates.
+
+After a successful run, export its exact config for reuse/reproducibility:
+```
+inspect log export-config logs/my_run.eval > wrapped_inspect/configs/my_run.yaml
+```
 
 ---
 
