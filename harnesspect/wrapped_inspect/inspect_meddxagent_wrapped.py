@@ -16,7 +16,9 @@ patient), RAG and dynamic few-shot OFF. Scoring reproduces MEDDxAgent's own
 metrics (metrics.py); GTPA@1 is the pass/fail value, the rest ride along in
 Score.metadata. Strict matching by default (-T weak_match=true for substring).
 
-Setup: MEDDxAgent lives at <repo>/meddxagent (its data ships in-tree, ~71MB).
+Setup: clone github.com/nec-research/meddxagent as a sibling of this repo
+(../../meddxagent) — see MEDDXAGENT_REPO_PATH below. Its benchmark data
+ships in-tree, so no extra download is needed.
 
 Run:
     inspect eval inspect_meddxagent_wrapped.py --model vllm/Qwen/Qwen2.5-7B-Instruct
@@ -36,12 +38,15 @@ from typing import Dict, List
 import anyio.from_thread
 import anyio.to_thread
 
-MEDDXAGENT_ROOT = Path(__file__).resolve().parents[2] / "meddxagent"
-sys.path.insert(0, str(MEDDXAGENT_ROOT))
+# Adjust to wherever your MEDDxAgent clone lives. Defaults to a sibling
+# of MultiTurn-Medical-Evaluation (.../LIGHT/meddxagent), matching the
+# local dev layout — this file lives two levels down, in harnesspect/wrapped_inspect/.
+MEDDXAGENT_REPO_PATH = Path(__file__).resolve().parents[3] / "meddxagent"
+sys.path.insert(0, str(MEDDXAGENT_REPO_PATH))
 
-import ddxdriver.models as _ddx_models  # noqa: E402
-from ddxdriver.benchmarks import Bench, init_bench  # noqa: E402
-from ddxdriver.benchmarks.metrics import (  # noqa: E402
+import ddxdriver.models as _ddx_models  # noqa: E402  # ty: ignore[unresolved-import]
+from ddxdriver.benchmarks import Bench, init_bench  # noqa: E402  # ty: ignore[unresolved-import]
+from ddxdriver.benchmarks.metrics import (  # noqa: E402  # ty: ignore[unresolved-import]
     _calculate_ddf1,
     _calculate_ddp,
     _calculate_ddr,
@@ -50,13 +55,13 @@ from ddxdriver.benchmarks.metrics import (  # noqa: E402
     strict_match,
     weak_match,
 )
-from ddxdriver.ddxdrivers import init_ddxdriver  # noqa: E402
-from ddxdriver.diagnosis_agents import init_diagnosis_agent  # noqa: E402
-from ddxdriver.history_taking_agents import init_history_taking_agent  # noqa: E402
-from ddxdriver.models.base import Model  # noqa: E402
-from ddxdriver.models.utils import get_chat_messages  # noqa: E402
-from ddxdriver.patient_agents import init_patient_agent  # noqa: E402
-from ddxdriver.utils import Patient  # noqa: E402
+from ddxdriver.ddxdrivers import init_ddxdriver  # noqa: E402  # ty: ignore[unresolved-import]
+from ddxdriver.diagnosis_agents import init_diagnosis_agent  # noqa: E402  # ty: ignore[unresolved-import]
+from ddxdriver.history_taking_agents import init_history_taking_agent  # noqa: E402  # ty: ignore[unresolved-import]
+from ddxdriver.models.base import Model  # noqa: E402  # ty: ignore[unresolved-import]
+from ddxdriver.models.utils import get_chat_messages  # noqa: E402  # ty: ignore[unresolved-import]
+from ddxdriver.patient_agents import init_patient_agent  # noqa: E402  # ty: ignore[unresolved-import]
+from ddxdriver.utils import Patient  # noqa: E402  # ty: ignore[unresolved-import]
 
 from inspect_ai import Task, task  # noqa: E402
 from inspect_ai.dataset import MemoryDataset, Sample  # noqa: E402
@@ -190,7 +195,7 @@ class InspectModel(Model):
 # Register InspectModel so init_model can import it by its dotted path without
 # a physical module file inside the meddxagent clone.
 _inspect_model_module = types.ModuleType("ddxdriver.models.inspect_model")
-_inspect_model_module.InspectModel = InspectModel
+_inspect_model_module.InspectModel = InspectModel  # ty: ignore[unresolved-attribute]
 sys.modules["ddxdriver.models.inspect_model"] = _inspect_model_module
 _ddx_models.inspect_model = _inspect_model_module
 # --------------------------------------------------------------------------

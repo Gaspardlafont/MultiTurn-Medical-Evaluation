@@ -22,7 +22,3 @@ env/
 
 # Inspect AI eval logs/transcripts
 logs/
-
-# Upstream benchmark repos, cloned separately (see wrapper docstrings)
-meddxagent/
-craft-md/
