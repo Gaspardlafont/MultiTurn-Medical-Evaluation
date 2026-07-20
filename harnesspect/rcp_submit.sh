@@ -19,7 +19,7 @@ runai submit \
   --backoff-limit 0 \
   --run-as-gid 84257 \
   --node-pool h100 \
-  --gpu 1 \
+  --gpu 8 \
   -- sleep infinity
 
 echo
