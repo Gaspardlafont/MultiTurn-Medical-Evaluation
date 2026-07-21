@@ -37,10 +37,15 @@ task:
 
 # Model(s). Two ways to configure — pick one:
 #
-# 1) SAME MODEL FOR EVERY ROLE (active by default below):
-model: vllm/Qwen/Qwen2.5-7B-Instruct
+# 1) SAME MODEL FOR EVERY ROLE (active by default below): just set `model:`
+#    and leave `model_roles:` commented out. expert/patient both fall back
+#    to this one model.
+model:
+  model: vllm/Qwen/Qwen2.5-7B-Instruct
+  # args:
+  #   tensor_parallel_size: 4  # uncomment + set to your GPU count for bigger models (e.g. a 70B) that need to be split across multiple GPUs — not needed for a 7B model
 
-# 2) DIFFERENT MODEL PER ROLE: uncomment model_roles below 
+# 2) DIFFERENT MODEL PER ROLE: uncomment model_roles below
 
 # model_roles:
 #   expert:

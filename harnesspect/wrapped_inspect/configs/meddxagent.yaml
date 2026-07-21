@@ -31,7 +31,10 @@ task:
 # 1) SAME MODEL FOR EVERY ROLE (active by default below): just set `model:`
 #    and leave `model_roles:` commented out. diagnosis/history_taking/
 #    patient/driver all fall back to this one model.
-model: vllm/Qwen/Qwen2.5-7B-Instruct
+model:
+  model: vllm/Qwen/Qwen2.5-7B-Instruct
+  # args:
+  #   tensor_parallel_size: 4  # uncomment + set to your GPU count for bigger models (e.g. a 70B) that need to be split across multiple GPUs — not needed for a 7B model
 
 # 2) DIFFERENT MODEL PER ROLE: uncomment model_roles below to pin specific
 # roles to specific models. Roles are: diagnosis, history_taking, patient,
