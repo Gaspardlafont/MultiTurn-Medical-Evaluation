@@ -61,8 +61,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--judge_model_args", default=None,
                    help="Comma-separated key=value args for the judge model.")
     p.add_argument("--task", default=None,
-                   help="Registered task: mediq | agentclinic. Required, here "
-                        "or in --config.")
+                   help="Registered task: mediq | agentclinic | meddxagent. "
+                        "Required, here or in --config.")
     p.add_argument("--task_args", default=None,
                    help="Comma-separated key=value args for the task.")
     p.add_argument("--output", default=None,

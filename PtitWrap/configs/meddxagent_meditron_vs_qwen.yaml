@@ -1,0 +1,43 @@
+# MEDDxAgent (iCraftMD), role-separated: doctor = Apertus-8B-MeditronFO
+# (the model under test — it plays the driver, history-taking AND diagnosis
+# agents), patient = Qwen (a separate, fixed model so the only variable between
+# this run and the base-Apertus run is the doctor). MEDDxAgent scores against
+# ground truth with its own metrics.py (no LLM judge), so "judge_model" here is
+# purely the simulated patient. Both models are launched by the harness itself
+# via the vllm-server backend (one vLLM server per model) -- nothing by hand.
+#
+# Prereq (once): pip install -e PtitWrap/external/meddxagent
+#
+# Run:
+#   python -m PtitWrap.cli --config PtitWrap/configs/meddxagent_meditron_vs_qwen.yaml
+#
+# Any single value can still be overridden ad hoc on the CLI, e.g. a quick smoke:
+#   python -m PtitWrap.cli --config PtitWrap/configs/meddxagent_meditron_vs_qwen.yaml \
+#       --task_args limit=3
+
+model: vllm-server
+model_args:
+  pretrained: EPFLiGHT/Apertus-8B-MeditronFO
+  port: 8000
+  max_model_len: 8192
+  max_tokens: 2048       # room for a full 10-item differential + rationale
+  enforce_eager: true    # Apertus/xIELU: avoids a 10-15 min compile hang at load
+
+judge_model: vllm-server
+judge_model_args:
+  pretrained: Qwen/Qwen2.5-7B-Instruct
+  port: 8001
+  max_model_len: 8192
+  max_tokens: 512        # patient answers are short
+
+task: meddxagent
+task_args:
+  dataset: icraftmd
+  limit: null            # all 140 iCraftMD patients; set an int for a subset
+  max_turns: 6
+  diagnosis_class: standard
+  max_questions: 10
+  weak_match: false      # strict exact match, MEDDxAgent's default
+
+output: PtitWrap/results/meddxagent_meditron_vs_qwen.json
+inspect_log: PtitWrap/results/inspect/meddxagent_meditron_vs_qwen.eval

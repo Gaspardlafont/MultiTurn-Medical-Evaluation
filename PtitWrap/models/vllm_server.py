@@ -41,6 +41,7 @@ class VLLMServerLM(OpenAIChatLM):
         max_model_len: int = 8192,
         dtype: str = "auto",
         cuda_visible_devices: str | int | None = None,
+        enforce_eager: bool = False,
         startup_timeout: float = 600.0,
         log_file: str | None = None,
         **kwargs: Any,
@@ -60,6 +61,13 @@ class VLLMServerLM(OpenAIChatLM):
             "--max-model-len", str(max_model_len),
             "--dtype", str(dtype),
         ]
+        # Opt-in: skip torch.compile / CUDA-graph capture. Some checkpoints
+        # (e.g. the Apertus family with its xIELU activation falling back to a
+        # Python impl) can otherwise spend 10-15 min compiling at load and race
+        # the startup timeout. Slightly slower steady-state inference, but a
+        # reliable, fast start. Off by default so existing configs are unchanged.
+        if enforce_eager:
+            cmd.append("--enforce-eager")
         logger.info("Launching vLLM server: %s (log: %s)", " ".join(cmd), log_file)
         self._log = open(log_file, "w")
         self.proc = subprocess.Popen(

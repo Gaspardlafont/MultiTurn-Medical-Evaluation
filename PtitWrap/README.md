@@ -47,9 +47,16 @@ to upstream):
   `run_patient_interaction` loop.
 - **`agentclinic`** → patches `query_model`, calls AgentClinic's own `main()`;
   wraps `compare_results` to capture accuracy.
+- **`meddxagent`** → no monkeypatch needed: MEDDxAgent already picks its LLM
+  backend by config string (`init_model`), so the adapter registers one extra
+  backend wrapping our `LM` and points every agent at it, then runs MEDDxAgent's
+  own `DDxDriver` loop per patient. Doctor (driver + history-taking + diagnosis)
+  = `--model`; simulated patient = `--judge_model`. Scores with MEDDxAgent's own
+  `metrics.py` (GTPA@k), not an LLM judge. V1: iCraftMD, multi-turn, RAG/few-shot
+  off — matches the Inspect wrapper for cross-harness comparison.
 
-Adding a benchmark = one new adapter that (1) patches its model-call function
-and (2) invokes its loop. No new model code, nothing changed upstream.
+Adding a benchmark = one new adapter that drives its loop with our `LM`. No new
+model code, nothing changed upstream.
 
 ## Usage
 
@@ -156,14 +163,14 @@ python -m PtitWrap.cli --config PtitWrap/configs/agentclinic_meditron_vs_qwen.ya
 ```
 PtitWrap/
   models/      LM base + registry (base.py), openai_chat.py, vllm_local.py, vllm_server.py
-  adapters/    MultiTurnTask base + registry (base.py), MediQ_adapter.py, AgentClinic_adapter.py
+  adapters/    MultiTurnTask base + registry (base.py), MediQ_adapter.py, AgentClinic_adapter.py, MEDDxAgent_adapter.py
   writers/     output formats beyond plain JSON (inspect_log.py)
   configs/     example --config YAML files
   schema.py    Message type, EvalResult
   utils.py     simple_parse_args_string
   config.py    --config YAML loading
   cli.py       entry point (python -m PtitWrap.cli)
-  external/    vendored upstream benchmarks (mediQ, AgentClinic) — kept pristine
+  external/    vendored upstream benchmarks (mediQ, AgentClinic, meddxagent) — kept pristine
 ```
 
 ## Dependencies
@@ -174,6 +181,9 @@ The harness core needs nothing heavy. Each path pulls its own:
 - `mediq` task → the MediQ src deps (`torch`, `transformers`, …)
 - `agentclinic` task → `transformers`; `anthropic`/`replicate` are optional
   (auto-stubbed if absent, since we never call those provider branches).
+- `meddxagent` task → the MEDDxAgent stack: `pip install -e PtitWrap/external/meddxagent`
+  (pulls `datasets`, `faiss-cpu`, `transformers`, `colorama`, … — needed at
+  import time even though RAG/few-shot are off).
 - `--config` → `pip install pyyaml`
 - `--inspect_log` → `pip install inspect_ai`
 
