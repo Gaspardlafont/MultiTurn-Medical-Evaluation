@@ -39,7 +39,7 @@ import anyio.from_thread
 import anyio.to_thread
 
 # Adjust to wherever your MEDDxAgent clone lives. Defaults to a sibling
-# of MultiTurn-Medical-Evaluation (.../LIGHT/meddxagent), matching the
+# of MultiTurn-Medical-Evaluation (.../meddxagent), matching the
 # local dev layout — this file lives two levels down, in harnesspect/wrapped_inspect/.
 MEDDXAGENT_REPO_PATH = Path(__file__).resolve().parents[3] / "meddxagent"
 sys.path.insert(0, str(MEDDXAGENT_REPO_PATH))
@@ -77,6 +77,16 @@ from inspect_ai.scorer import CORRECT, INCORRECT, Score, Target, accuracy, score
 from inspect_ai.solver import Generate, Solver, TaskState, solver  # noqa: E402
 
 INSPECT_MODEL = "ddxdriver.models.inspect_model.InspectModel"
+
+import ddxdriver.benchmarks.rarebench as _rarebench_module  # noqa: E402  # ty: ignore[unresolved-import]
+from datasets import load_dataset as _hf_load_dataset  # noqa: E402
+
+
+def _load_dataset_trusted(*args, **kwargs):
+    kwargs.setdefault("trust_remote_code", True)
+    return _hf_load_dataset(*args, **kwargs)
+
+_rarebench_module.load_dataset = _load_dataset_trusted
 
 
 # --- Inspect-backed MEDDxAgent model backend ------------------------------
