@@ -337,7 +337,4 @@ def agentclinic_wrapped(
             seed=seed,
         ),
         scorer=model_graded_qa(),
-        # model_roles left unbound here — pass --model-role doctor=... /
-        # patient=... / measurement=... on the CLI instead (see module
-        # docstring).
     )
