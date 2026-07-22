@@ -1,0 +1,9 @@
+[submodule "external/mediQ"]
+	path = external/mediQ
+	url = https://github.com/stellalisy/mediQ.git
+[submodule "external/agentclinic"]
+	path = external/agentclinic
+	url = https://github.com/SamuelSchmidgall/AgentClinic.git
+[submodule "external/meddxagent"]
+	path = external/meddxagent
+	url = https://github.com/nec-research/meddxagent.git
