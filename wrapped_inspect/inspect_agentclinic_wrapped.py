@@ -270,6 +270,12 @@ def agentclinic_classic_scorer() -> Scorer:
     async def score(state: TaskState, target: Target) -> Score:
         diagnosis = state.output.completion
         correct_diagnosis = target.text
+        # AgentClinic's main() only calls compare_results() when the doctor's
+        # turn contains "DIAGNOSIS READY" — otherwise the scenario is simply
+        # never graded (implicitly incorrect), the moderator model is never
+        # consulted. Replicate that short-circuit exactly.
+        if "DIAGNOSIS READY" not in diagnosis:
+            return Score(value=INCORRECT, answer=diagnosis, explanation="No DIAGNOSIS READY in final turn — not graded, per AgentClinic's own main().")
         output = await get_model().generate(
             [
                 ChatMessageSystem(content=_MODERATOR_SYSTEM_PROMPT),
