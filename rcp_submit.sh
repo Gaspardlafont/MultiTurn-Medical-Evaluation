@@ -1,12 +1,14 @@
 #!/usr/bin/env bash
-# Delete then resubmit base-job on RCP (light-$GASPAR project, h100 node-pool).
-# Usage: bash rcp_submit_base_job.sh
+# Delete then resubmit a job on RCP (light-$GASPAR project, h100 node-pool).
+# Usage: bash rcp_submit.sh
 set -euo pipefail
 
-runai delete job base-job 2>/dev/null || true
+JOB_NAME=agentclinic-job
+
+runai delete job "$JOB_NAME" 2>/dev/null || true
 
 runai submit \
-  --name base-job \
+  --name "$JOB_NAME" \
   --image registry.rcp.epfl.ch/multiturn-eval-harness/$GASPAR/basic:amd64-cuda-$GASPAR-latest \
   --pvc light-scratch:/lightscratch \
   --large-shm \
@@ -23,5 +25,5 @@ runai submit \
   -- sleep infinity
 
 echo
-echo "Submitted. Check status with: runai describe job base-job"
-echo "Attach with:                  runai bash base-job"
+echo "Submitted. Check status with: runai describe job $JOB_NAME"
+echo "Attach with:                  runai bash $JOB_NAME"
