@@ -5,15 +5,11 @@ openai
 anthropic
 replicate
 datasets
-faiss-cpu             
+faiss-cpu
 pandas
-sentence-transformers
-langchain-openai
-biopython
 colorama
 transformers
 requests
 tqdm
 pyyaml
 python-dotenv
-beautifulsoup4
