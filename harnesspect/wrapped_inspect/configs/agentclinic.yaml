@@ -1,0 +1,75 @@
+# Test config for inspect_agentclinic_wrapped.py, using Inspect's native
+# --run-config
+# Run from harnesspect/:
+#   inspect eval --run-config wrapped_inspect/configs/agentclinic.yaml
+#
+# CLI flags override values from this file, e.g. to bump the sample count:
+#   inspect eval --run-config wrapped_inspect/configs/agentclinic.yaml -T limit=10
+#
+# IMPORTANT: temperature/max_tokens/top_p/seed below are OUR wrapper's own
+# -T args (task.args), not Inspect's native top-level `generate_config:`
+# field. The wrapper builds its own GenerateConfig internally from these
+# task args and passes it explicitly to every generate() call — a top-level
+# `generate_config:` in this file would be silently ignored by the wrapper.
+
+task:
+  task: wrapped_inspect/inspect_agentclinic_wrapped.py
+  args:
+    # --- active for this run ---
+    # Matches PtitWrap/configs/agentclinic_meditron_vs_qwen.yaml (dataset,
+    # num_scenarios -> limit, total_inferences -> max_turns) so the two
+    # harnesses run the exact same experiment.
+    dataset: MedQA  # MedQA / MedQA_Ext / MIMICIV / NEJM / NEJM_Ext
+    limit: 10 # set to null if you want to run on the whole dataset
+    max_turns: 20
+
+    # --- everything below is commented out, so left at the wrapper's own
+    # default (shown in each comment). Uncomment and edit any line to
+    # override it for this run. ---
+    # doctor_bias: recency         # one of: recency, frequency, false_consensus, confirmation, status_quo, gender, race, sexual_orientation, cultural, education, religion, socioeconomic (default: null = no bias)
+    # patient_bias: recency        # one of: recency, frequency, false_consensus, self_diagnosis, gender, race, sexual_orientation, cultural, education, religion, socioeconomic (default: null = no bias)
+    # doctor_image_request: true   # NEJM only (default: false)
+    # temperature: 0.7             # sampling temperature (default: model's own default)
+    # max_tokens: 512              # max tokens per generation (default: model's own default)
+    # top_p: 0.9                   # nucleus sampling top_p (default: model's own default)
+    # seed: 42                     # generation seed (default: null = not set)
+
+# Model(s). Two ways to configure — pick one:
+#
+# 1) SAME MODEL FOR EVERY ROLE: just set `model:` and leave `model_roles:`
+#    commented out. doctor/patient/measurement/moderator all fall back to
+#    this one model.
+# model:
+#   model: vllm/Qwen/Qwen2.5-7B-Instruct
+#   # args:
+#   #   tensor_parallel_size: 4  # uncomment + set to your GPU count for bigger models (e.g. a 70B) that need to be split across multiple GPUs — not needed for a 7B model
+
+# 2) DIFFERENT MODEL PER ROLE (active by default below): doctor = the model
+#    under test (Apertus-8B-MeditronFO), patient/measurement/moderator = a
+#    separate, fixed judge model (Qwen) — same role split as PtitWrap's
+#    judge_model (patient+measurement+moderator all on "AUX"). Matches
+#    PtitWrap/configs/agentclinic_meditron_vs_qwen.yaml, which runs with
+#    VLLMServerLM's defaults (gpu_memory_utilization=0.45, enforce_eager=
+#    False) -- kept identical here for a strict apples-to-apples comparison.
+# If Apertus/Meditron's xIELU activation hangs at load (10-15 min compiling),
+# uncomment enforce_eager: true below -- it only affects startup/speed, not
+# generation, so it's safe to add on just one side if needed.
+model_roles:
+  doctor:
+    model: vllm/EPFLiGHT/Apertus-8B-MeditronFO
+    args:
+      # tensor_parallel_size: 8  # uncomment + set to your GPU count for bigger models (e.g. a 70B) that need to be split across multiple GPUs — not needed for this 8B model
+      gpu_memory_utilization: 0.45
+      # enforce_eager: true
+  patient:
+    model: vllm/Qwen/Qwen2.5-7B-Instruct
+    args:
+      gpu_memory_utilization: 0.45
+  measurement:
+    model: vllm/Qwen/Qwen2.5-7B-Instruct
+    args:
+      gpu_memory_utilization: 0.45
+  moderator:
+    model: vllm/Qwen/Qwen2.5-7B-Instruct
+    args:
+      gpu_memory_utilization: 0.45

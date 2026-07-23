@@ -109,6 +109,7 @@ class AgentClinicTask(MultiTurnTask):
         orig_patient_inf = ac.PatientAgent.inference_patient
         orig_meas_inf = ac.MeasurementAgent.inference_measurement
         original_compare = ac.compare_results
+        orig_query_model = ac.query_model
 
         def patched_doctor_init(
             self: Any, scenario: Any, *a: Any, **kw: Any
@@ -155,7 +156,10 @@ class AgentClinicTask(MultiTurnTask):
             verdict = original_compare(
                 diagnosis, correct_diagnosis, moderator_llm, mod_pipe
             )
-            correct = verdict.strip().lower().startswith("yes")
+            # Native agentclinic.py's main() does an exact `== "yes"` check,
+            # no .strip() — keep this identical so our bookkeeping matches
+            # what upstream actually counts as correct.
+            correct = verdict.lower() == "yes"
             if scenes:
                 scenes[-1]["reached_diagnosis"] = True
                 scenes[-1]["correct"] = correct
@@ -202,6 +206,7 @@ class AgentClinicTask(MultiTurnTask):
             ac.PatientAgent.inference_patient = orig_patient_inf
             ac.MeasurementAgent.inference_measurement = orig_meas_inf
             ac.compare_results = original_compare
+            ac.query_model = orig_query_model
 
         # Build per-sample records (mirrors MediQ's output shape).
         samples: list[dict[str, Any]] = []

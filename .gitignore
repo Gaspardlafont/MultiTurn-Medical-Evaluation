@@ -19,3 +19,6 @@ env/
 # Secrets
 .env
 *.env
+
+# Benchmark run outputs (results, logs, .eval files) — not tracked
+PtitWrap/results/

@@ -7,7 +7,7 @@ runai delete job base-job 2>/dev/null || true
 
 runai submit \
   --name base-job \
-  --image registry.rcp.epfl.ch/multiturn-eval-harness/lafont/basic:amd64-cuda-lafont-latest \
+  --image registry.rcp.epfl.ch/multiturn-eval-harness/$GASPAR/basic:amd64-cuda-$GASPAR-latest \
   --pvc light-scratch:/lightscratch \
   --large-shm \
   -e NAS_HOME=/lightscratch/users/$GASPAR \
@@ -19,7 +19,7 @@ runai submit \
   --backoff-limit 0 \
   --run-as-gid 84257 \
   --node-pool h100 \
-  --gpu 1 \
+  --gpu 4 \
   -- sleep infinity
 
 echo
