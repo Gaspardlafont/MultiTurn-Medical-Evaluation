@@ -78,7 +78,7 @@ from inspect_ai.model import (
     ModelOutput,
     get_model,
 )
-from inspect_ai.scorer import CORRECT, INCORRECT, Score, Scorer, Target, accuracy, scorer, stderr
+from inspect_ai.scorer import model_graded_qa
 from inspect_ai.solver import Generate, Solver, TaskState, solver
 
 class DatasetInfo(NamedTuple):
@@ -251,55 +251,6 @@ def _run_scenario_sync(
     return _local.transcript, _local.last_doctor_output
 
 
-# Replicates AgentClinic's own compare_results() (agentclinic.py, upstream,
-# not vendored here) verbatim, including its quirks (typo and all) — a
-# single Yes/No judgment from the default model, checked with a strict
-# `answer.lower() == "yes"` equality rather than model_graded_qa()'s lenient
-# rubric. Used to isolate scoring-methodology differences from dialogue
-# differences when comparing against AgentClinic's own harness.
-_MODERATOR_SYSTEM_PROMPT = (
-    "You are responsible for determining if the corrent diagnosis and the doctor "
-    "diagnosis are the same disease. Please respond only with Yes or No. Nothing else."
-)
-
-
-@scorer(metrics=[accuracy(), stderr()])
-def agentclinic_classic_scorer() -> Scorer:
-    """AgentClinic's own compare_results() grading, reimplemented verbatim."""
-
-    async def score(state: TaskState, target: Target) -> Score:
-        diagnosis = state.output.completion
-        correct_diagnosis = target.text
-        # AgentClinic's main() only calls compare_results() when the doctor's
-        # turn contains "DIAGNOSIS READY" — otherwise the scenario is simply
-        # never graded (implicitly incorrect), the moderator model is never
-        # consulted. Replicate that short-circuit exactly.
-        if "DIAGNOSIS READY" not in diagnosis:
-            return Score(value=INCORRECT, answer=diagnosis, explanation="No DIAGNOSIS READY in final turn — not graded, per AgentClinic's own main().")
-        output = await get_model().generate(
-            [
-                ChatMessageSystem(content=_MODERATOR_SYSTEM_PROMPT),
-                ChatMessageUser(
-                    content=(
-                        "\nHere is the correct diagnosis: "
-                        + correct_diagnosis
-                        + "\n Here was the doctor dialogue: "
-                        + diagnosis
-                        + "\nAre these the same?"
-                    )
-                ),
-            ]
-        )
-        answer = output.completion.lower()
-        return Score(
-            value=CORRECT if answer == "yes" else INCORRECT,
-            answer=diagnosis,
-            explanation=output.completion,
-        )
-
-    return score
-
-
 @solver
 def agentclinic_wrapped_loop(
     max_turns: int = 20,
@@ -385,5 +336,5 @@ def agentclinic_wrapped(
             top_p=top_p,
             seed=seed,
         ),
-        scorer=agentclinic_classic_scorer(),
+        scorer=model_graded_qa(),
     )
