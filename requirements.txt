@@ -1,0 +1,44 @@
+# Requirements for the Inspect wrappers (wrapped_inspect/) and the 3 vendored
+# benchmark repos under external/ (mediQ, agentclinic, meddxagent).
+#
+# NOT derived from mediQ's environment.yml / agentclinic's requirements.txt /
+# meddxagent's pyproject.toml as-is — those list each repo's OWN native
+# model-calling stack (openai/anthropic/replicate SDKs, pinned old vllm,
+# RAG-only extras), most of which we bypass entirely via monkeypatching.
+# This list is audited from actual top-level imports needed just to load
+# their modules, not to run their native (unused) code paths.
+
+# --- Harness ---
+inspect-ai>=0.3.246
+vllm                    # pulls in torch/transformers/etc. as its own deps
+
+# --- Needed only so `import agentclinic` doesn't crash (AgentClinic imports
+# these unconditionally at module load, even though query_model() is
+# monkeypatched and none of their native API clients are ever called) ---
+openai
+anthropic
+replicate
+
+# --- mediQ (helper.py imports torch directly; already pulled by vllm above,
+# listed for clarity) ---
+# torch  (comes from vllm)
+
+# --- meddxagent (ddxdriver/*, imported unconditionally even for features we
+# don't use — e.g. faiss is imported eagerly by benchmarks/base.py even
+# when fewshot/RAG is off, per V1 scope) ---
+datasets
+faiss-cpu               # NOT `faiss` — that PyPI name doesn't exist
+pandas
+sentence-transformers
+langchain-openai
+biopython
+colorama
+
+# --- Common transitive needs across the 3 repos, listed explicitly for
+# clarity even though vllm/inspect-ai likely already pull some of these in ---
+transformers
+requests
+tqdm
+pyyaml
+python-dotenv
+beautifulsoup4
