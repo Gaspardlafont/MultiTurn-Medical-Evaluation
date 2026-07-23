@@ -29,8 +29,8 @@ imported_top_level = {m.split(".")[0].lower().replace("_", "-") for m in (after 
 req_path = Path(__file__).parent / "requirements.txt"
 declared = set()
 for line in req_path.read_text().splitlines():
-    line = line.strip()
-    if not line or line.startswith("#"):
+    line = line.split("#", 1)[0].strip()  # strip inline comments first
+    if not line:
         continue
     name = re.split(r"[<>=!\[]", line)[0].strip().lower()
     declared.add(name)
@@ -46,8 +46,13 @@ ALIASES = {
     "langchain-openai": "langchain-openai",
 }
 
+# vllm is invoked as a `vllm serve` subprocess by inspect_ai's provider,
+# lazily at generate() time — it's never `import vllm`-ed by loading our
+# wrapper files, so it always looks "unused" here despite being required.
+KNOWN_RUNTIME_ONLY = {"vllm"}
+
 unused = []
-for pkg in sorted(declared):
+for pkg in sorted(declared - KNOWN_RUNTIME_ONLY):
     import_name = ALIASES.get(pkg, pkg)
     if import_name not in imported_top_level and pkg not in imported_top_level:
         unused.append(pkg)
