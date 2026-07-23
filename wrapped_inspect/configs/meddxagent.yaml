@@ -1,62 +1,76 @@
-# Test config for inspect_meddxagent_wrapped.py, using Inspect's native
-# --run-config (bundles task, model, model_roles into one file instead of a
-# long CLI command).
-#
-# Run from MultiTurn-Medical-Evaluation/ (repo root):
-#   inspect eval --run-config wrapped_inspect/configs/meddxagent.yaml
-#
-# CLI flags override values from this file, e.g. to bump the sample count:
-#   inspect eval --run-config wrapped_inspect/configs/meddxagent.yaml -T limit=10
-#
-# Note: unlike the MediQ/AgentClinic wrappers, temperature/max_tokens are not
-# exposed as -T args here — MEDDxAgent's own defaults apply (temperature=0.0).
+# ==============================================================================
+# Inspect AI Config: MultiTurn-Medical-Evaluation — MEDDxAgent
+# CLI usage: inspect eval --run-config wrapped_inspect/configs/meddxagent.yaml
+# Override example: inspect eval --run-config wrapped_inspect/configs/meddxagent.yaml -T limit=10
+# ==============================================================================
+# NOTE: unlike the MediQ/AgentClinic wrappers, temperature/max_tokens are not
+# exposed as task args here — MEDDxAgent's own defaults apply (temperature=0.0).
+# ==============================================================================
 
 task:
   task: wrapped_inspect/inspect_meddxagent_wrapped.py
   args:
-    # --- active for this run ---
-    dataset: icraftmd  # icraftmd / ddxplus / rarebench(upcoming)
-    limit: 3 # set to null if you want to run on the whole dataset
+    # --- Active Settings ---
+    dataset: icraftmd       # icraftmd / ddxplus / rarebench (upcoming)
+    limit: 3                # Set to null to run on the whole dataset
     max_turns: 6
     max_questions: 10
 
-    # --- everything below is commented out, so left at the wrapper's own
-    # default (shown in each comment). Uncomment and edit any line to
-    # override it for this run. ---
-    # diagnosis_class: standard   # standard / cot (default: standard)
-    # weak_match: true            # true = substring match, false = exact match (default: false)
+    # --- Optional Overrides (wrapper defaults shown) ---
+    # diagnosis_class: standard   # standard / cot
+    # weak_match: false           # true = substring match, false = exact match
 
-# Model(s). Two ways to configure — pick one:
+# ==============================================================================
+# Model Configuration
 #
-# 1) SAME MODEL FOR EVERY ROLE (active by default below): just set `model:`
-#    and leave `model_roles:` commented out. diagnosis/history_taking/
-#    patient/driver all fall back to this one model.
+# Roles: diagnosis, history_taking, patient, driver (driver picks which agent
+# — history_taking or diagnosis — goes next each turn, see OpenChoice). Any
+# role not listed in model_roles falls back to `model:` below.
+#
+# IMPORTANT: diagnosis/history_taking/driver should normally be the SAME
+# model — that's "the doctor" being evaluated. The driver decides when to
+# stop interviewing and commit to a diagnosis, which is itself part of the
+# doctor's clinical judgment; if driver runs on a different model than
+# diagnosis/history_taking, you're evaluating a hybrid system, not one doctor
+# model. Only patient should be a separate model.
+#
+# GPU Rules of Thumb:
+# 1. Shared model: if roles use the same model, assign them the SAME `device`.
+# 2. Different models: assign separate `device` IDs (full isolation) OR use the
+#    same ID but cap `gpu_memory_utilization` on both to prevent OOM crashes.
+#    Never leave `device` unset with two different models — they silently
+#    land on the same GPU uncapped and the second one to start crashes.
+# 3. Large models (e.g. a 70B): use `devices: [0, 1, 2, 3]` instead of
+#    `device`. Inspect auto-sets tensor_parallel_size to len(devices) — don't
+#    set tensor_parallel_size yourself, and don't mix `device`/`devices`.
+# ==============================================================================
+
+# Option 1: Single model for every role (active by default)
 model:
   model: vllm/Qwen/Qwen2.5-7B-Instruct
   # args:
-  #   tensor_parallel_size: 4  # uncomment + set to your GPU count for bigger models (e.g. a 70B) that need to be split across multiple GPUs — not needed for a 7B model
+  #   device: 1              # match patient's device below if you switch to Option 2 and patient uses this same model
+  #   devices: [0, 1, 2, 3]  # for a model too big for 1 GPU — see GPU Rules of Thumb #3
 
-# 2) DIFFERENT MODEL PER ROLE: uncomment model_roles below to pin specific
-# roles to specific models. Roles are: diagnosis, history_taking, patient,
-# driver (driver picks which agent — history_taking or diagnosis — goes
-# next each turn, see OpenChoice). Any role not listed here still falls
-# back to `model:` above. Each role's `args` maps to vLLM server kwargs
-# (gpu_memory_utilization, tensor_parallel_size, etc.).
+# Option 2: Different model per role (uncomment to use)
 # model_roles:
 #   diagnosis:
 #     model: vllm/EPFLiGHT/Apertus-8B-MeditronFO
 #     args:
-#       # tensor_parallel_size: 8  # uncomment + set to your GPU count for bigger models (e.g. a 70B) that need to be split across multiple GPUs — not needed for this 8B model
+#       device: 0                # different model than patient/model -> own GPU by default
 #       gpu_memory_utilization: 0.45
 #   history_taking:
-#     model: vllm/Qwen/Qwen2.5-7B-Instruct
+#     model: vllm/EPFLiGHT/Apertus-8B-MeditronFO
 #     args:
+#       device: 0                # same model as diagnosis above -> shares its server
+#       gpu_memory_utilization: 0.45
+#   driver:
+#     model: vllm/EPFLiGHT/Apertus-8B-MeditronFO
+#     args:
+#       device: 0                # same model as diagnosis/history_taking above -> shares its server
 #       gpu_memory_utilization: 0.45
 #   patient:
 #     model: vllm/Qwen/Qwen2.5-7B-Instruct
 #     args:
-#       gpu_memory_utilization: 0.45
-#   driver:
-#     model: vllm/Qwen/Qwen2.5-7B-Instruct
-#     args:
+#       device: 1                # same model as `model:` above -> shares its server
 #       gpu_memory_utilization: 0.45

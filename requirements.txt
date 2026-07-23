@@ -1,0 +1,15 @@
+# --- Harness ---
+inspect-ai>=0.3.246
+vllm                   
+openai
+anthropic
+replicate
+datasets
+faiss-cpu
+pandas
+colorama
+transformers
+requests
+tqdm
+pyyaml
+python-dotenv

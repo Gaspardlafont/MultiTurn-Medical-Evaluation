@@ -53,6 +53,15 @@ Already have a clone without them? Fetch the submodules into it:
 git submodule update --init
 ```
 
+Then create a venv and install dependencies from `requirements.txt` (audited from the actual imports needed by the wrappers and the 3 vendored repos — not their own published requirements files, which pull in a lot we bypass via monkeypatching):
+
+```
+python3 -m venv venvs/multiturn
+source venvs/multiturn/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
 ## Running the Wrappers
 
 All wrappers live in `wrapped_inspect/`, run via Inspect's CLI. Full options are documented in each file's own docstring — the summary below just covers the base command.
